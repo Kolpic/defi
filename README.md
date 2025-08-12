@@ -1,164 +1,66 @@
-# DeFi Smart Contracts Collection
+## Foundry
 
-A comprehensive collection of DeFi smart contracts built with Foundry, featuring Uniswap V3 integration, TWAP price providers, and more.
+**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
 
-## 📁 Projects
+Foundry consists of:
 
-### 🦄 [Uniswap V3 Swapper](./uniswap-v3/)
+-   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
+-   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
+-   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
+-   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
 
-A smart contract that integrates with Uniswap V3 as a swap provider, supporting both single-hop and multi-hop routes.
+## Documentation
 
-**Features:**
+https://book.getfoundry.sh/
 
-- ✅ Swaps based on desired output amount (minimum input)
-- ✅ Swaps based on specified input amount (maximum output)
-- ✅ Support for both single-hop and multi-hop routes
-- ✅ Internal slippage handling
-- ✅ Predefined token pairs support
+## Usage
 
-**Key Functions:**
+### Build
 
-- `swapExactInput()` - Swap with exact input amount
-- `swapExactOutput()` - Swap with exact output amount
-- Configurable slippage tolerance
-
-### 📊 [TWAP Price Provider](./TWAP-price-provider/)
-
-A smart contract that integrates with Uniswap V3 as a TWAP (Time-Weighted Average Price) provider for price feeds.
-
-**Features:**
-
-- ✅ Fetching prices of assets denominated in other assets (e.g., ETH in USDC, ETH in WBTC)
-- ✅ Supporting predefined token pairs only
-- ✅ Configurable observation times (30min - 2 hours)
-- ✅ Uses Uniswap's official OracleLibrary for accurate TWAP calculations
-
-**Key Functions:**
-
-- `getTWAPPrice()` - Get TWAP price with custom observation time
-- `getQuote()` - Get quote for swap
-- Pool management (register, activate, deactivate)
-
-### 🏦 [Aave V3 Integration](./aave-v3/)
-
-_Coming soon..._
-
-## 🛠️ Technology Stack
-
-- **Framework**: Foundry
-- **Language**: Solidity
-- **Testing**: Forge (with mainnet forking)
-- **Dependencies**:
-  - Uniswap V3 Core & Periphery
-  - OpenZeppelin Contracts
-  - Forge Standard Library
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-1. **Install Foundry**
-
-```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
+```shell
+$ forge build
 ```
 
-2. **Clone the repository**
+### Test
 
-```bash
-git clone <your-repo-url>
-cd defi
+```shell
+$ forge test
 ```
 
-3. **Install dependencies**
+### Format
 
-```bash
-forge install
+```shell
+$ forge fmt
 ```
 
-4. **Set up environment variables**
+### Gas Snapshots
 
-```bash
-# Create .env file
-cp .env.example .env
-
-# Add your RPC URLs
-export MAINNET_RPC_URL=https://mainnet.infura.io/v3/YOUR_KEY
-export SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/YOUR_KEY
+```shell
+$ forge snapshot
 ```
 
-### Running Tests
+### Anvil
 
-#### Uniswap V3 Swapper Tests
-
-```bash
-cd uniswap-v3
-forge test --match-test test_DeployAndCheckSetup -vvv
+```shell
+$ anvil
 ```
 
-#### TWAP Price Provider Tests
+### Deploy
 
-```bash
-cd TWAP-price-provider
-forge test --match-test testGetTWAPPrice_WETH_to_USDC -vvv
+```shell
+$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
 ```
 
-#### All Tests
+### Cast
 
-```bash
-# From the root directory
-forge test --recursive -vvv
+```shell
+$ cast <subcommand>
 ```
 
-## 📋 Requirements Met
+### Help
 
-### Uniswap V3 Swapper ✅
-
-- ✅ **Core Functionality**: Contract integrates with Uniswap V3 as a swap provider
-- ✅ **Swap Types**: Supports both exact input and exact output swaps
-- ✅ **Predefined Pairs**: Only predefined token pairs supported
-- ✅ **Multi-hop Support**: Both single-hop and multi-hop routes
-- ✅ **Slippage Handling**: Internal slippage management
-
-### TWAP Price Provider ✅
-
-- ✅ **Core Functionality**: Contract integrates with Uniswap V3 as a TWAP price provider
-- ✅ **Price Fetching**: Can fetch prices of assets denominated in other assets
-- ✅ **Predefined Pairs**: Only predefined token pairs supported
-
-## 🔗 Integration
-
-The contracts are designed to work together:
-
-```solidity
-// Use TWAP for price oracle
-(uint256 twapPrice, ) = twapProvider.getTWAPPrice(WETH, USDC, 1e18);
-
-// Use Swapper for actual trades
-uint256 amountOut = swapper.swapExactInput(path, fees, amountIn);
+```shell
+$ forge --help
+$ anvil --help
+$ cast --help
 ```
-
-## 🧪 Testing
-
-All contracts include comprehensive fork tests that run against mainnet:
-
-- **Unit Tests**: Basic functionality and edge cases
-- **Fork Tests**: Real mainnet integration tests
-- **Integration Tests**: Cross-contract functionality
-
-## 📝 License
-
-MIT License - see individual project directories for specific licenses.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## 📞 Support
-
-For questions or issues, please open an issue in the repository.

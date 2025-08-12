@@ -183,18 +183,41 @@ contract TWAPPriceProvider is Ownable {
         // Convert the resulting average tick to a sqrt price.
         uint160 sqrtPriceX96 = TickMath.getSqrtRatioAtTick(averageTick);
 
-        // Use OracleLibrary.getQuoteAtTick for accurate calculation
-        amountOut = OracleLibrary.getQuoteAtTick(
-            averageTick,
-            uint128(amountIn),
-            tokenIn,
-            tokenOut
-        );
+        // the helper function does not exists in the 0.8 compatable branch -_-
+        amountOut = _getAmountOut(amountIn, tokenIn, tokenOut, sqrtPriceX96);
 
-        // Calculate price (amountOut * 1e18 / amountIn)
-        price = (amountOut * 1e18) / amountIn;
+        uint256 scaledAmountIn = amountIn * (10**(18 - IERC20Metadata(tokenIn).decimals()));
+        uint256 scaledAmountOut = amountOut * (10**(18 - IERC20Metadata(tokenOut).decimals()));
+        if (scaledAmountIn == 0) { price = 0; } else { price = (scaledAmountOut * 1e18) / scaledAmountIn; }
         
         return (amountOut, price);
+    }
+
+    /**
+     * @dev Gets the required input amount for a desired output amount based on the TWAP.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountOut The desired amount of output tokens.
+     * @return amountIn The calculated required amount of input tokens.
+     */
+    function getAmountInForExactOut(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountOut
+    ) external view returns (uint256 amountIn) {
+        uint32 observationTime = defaultObservationTime;
+        bytes32 pairHash = _getPairHash(tokenIn, tokenOut);
+        PoolInfo memory poolInfo = pools[pairHash];
+        
+        if (poolInfo.pool == address(0)) revert PoolNotFound();
+        if (!poolInfo.isActive) revert PoolInactive();
+
+        (int56 arithmeticMeanTick, ) = OracleLibrary.consult(poolInfo.pool, observationTime);
+        int24 averageTick = int24(arithmeticMeanTick);
+        
+        uint160 sqrtPriceX96 = TickMath.getSqrtRatioAtTick(averageTick);
+        
+        amountIn = _getAmountIn(amountOut, tokenIn, tokenOut, sqrtPriceX96);
     }
 
     /**
@@ -241,5 +264,52 @@ contract TWAPPriceProvider is Ownable {
     function _getPairHash(address tokenA, address tokenB) internal pure returns (bytes32) {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         return keccak256(abi.encodePacked(token0, token1));
+    }
+
+    /**
+     * @dev Internal function to calculate the required input amount for a desired output amount.
+     */
+    function _getAmountIn(
+        uint256 amountOut,
+        address tokenIn,
+        address tokenOut,
+        uint160 sqrtPriceX96
+    ) internal view returns (uint256 amountIn) {
+        (address token0,) = tokenIn < tokenOut ? (tokenIn, tokenOut) : (tokenOut, tokenIn);
+        uint8 decimalsIn = IERC20Metadata(tokenIn).decimals();
+        uint8 decimalsOut = IERC20Metadata(tokenOut).decimals();
+
+        // Normalize amountOut to 18 decimals for calculation
+        uint256 amountOutScaled = amountOut * (10**(18 - decimalsOut));
+        uint256 amountInScaled;
+
+        if (tokenIn == token0) { // Swapping token0 for token1, need to find amountIn of token0
+            // This is the reverse of the _getAmountOut logic
+            amountInScaled = (amountOutScaled << 192) / (uint256(sqrtPriceX96) * uint256(sqrtPriceX96));
+        } else { // Swapping token1 for token0, need to find amountIn of token1
+            amountInScaled = (amountOutScaled * uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) >> 192;
+        }
+
+        // Scale the result back down to the correct number of decimals for the input token
+        return amountInScaled / (10**(18 - decimalsIn));
+    }
+
+    function _getAmountOut(
+        uint256 amountIn,
+        address tokenIn,
+        address tokenOut,
+        uint160 sqrtPriceX96
+    ) internal view returns (uint256 amountOut) {
+        (address token0,) = tokenIn < tokenOut ? (tokenIn, tokenOut) : (tokenOut, tokenIn);
+        uint8 decimalsIn = IERC20Metadata(tokenIn).decimals();
+        uint8 decimalsOut = IERC20Metadata(tokenOut).decimals();
+        uint256 amountInScaled = amountIn * (10**(18 - decimalsIn));
+        uint256 amountOutScaled;
+        if (tokenIn == token0) {
+            amountOutScaled = (amountInScaled * uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) >> 192;
+        } else {
+            amountOutScaled = (amountInScaled << 192) / (uint256(sqrtPriceX96) * uint256(sqrtPriceX96));
+        }
+        return amountOutScaled / (10**(18 - decimalsOut));
     }
 } 
