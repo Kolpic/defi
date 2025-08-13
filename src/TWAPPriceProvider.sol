@@ -280,6 +280,9 @@ contract TWAPPriceProvider is Ownable {
         address tokenOut,
         uint160 sqrtPriceX96
     ) internal view returns (uint256 amountIn) {
+        require(amountOut > 0, "Amount must be greater than 0");
+        require(sqrtPriceX96 > 0, "Invalid price");
+
         (address token0,) = tokenIn < tokenOut ? (tokenIn, tokenOut) : (tokenOut, tokenIn);
         uint8 decimalsIn = IERC20Metadata(tokenIn).decimals();
         uint8 decimalsOut = IERC20Metadata(tokenOut).decimals();
@@ -289,9 +292,10 @@ contract TWAPPriceProvider is Ownable {
         uint256 amountInScaled;
 
         if (tokenIn == token0) { // Swapping token0 for token1, need to find amountIn of token0
-            // This is the reverse of the _getAmountOut logic
+            // Reverse of token0 -> token1: amountIn = amountOut / price
             amountInScaled = (amountOutScaled << 192) / (uint256(sqrtPriceX96) * uint256(sqrtPriceX96));
         } else { // Swapping token1 for token0, need to find amountIn of token1
+            // Reverse of token1 -> token0: amountIn = amountOut * price
             amountInScaled = (amountOutScaled * uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) >> 192;
         }
 
@@ -305,6 +309,9 @@ contract TWAPPriceProvider is Ownable {
         address tokenOut,
         uint160 sqrtPriceX96
     ) internal view returns (uint256 amountOut) {
+        require(amountIn > 0, "Amount must be greater than 0");
+        require(sqrtPriceX96 > 0, "Invalid price");
+        
         (address token0,) = tokenIn < tokenOut ? (tokenIn, tokenOut) : (tokenOut, tokenIn);
         uint8 decimalsIn = IERC20Metadata(tokenIn).decimals();
         uint8 decimalsOut = IERC20Metadata(tokenOut).decimals();

@@ -54,6 +54,8 @@ contract UniswapV3Swapper {
         uint256 amountIn
     ) external returns (uint256 amountOut) {
         require(path.length - 1 == fees.length, "Invalid path/fees");
+        require(path.length > 1, "Invalid path length");
+        require(amountIn > 0, "Amount must be greater than 0");
 
         // Transfer the input token from the user to this contract
         IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
@@ -64,12 +66,27 @@ contract UniswapV3Swapper {
         // encode the path for multi-hop swap
         bytes memory encodedPath = _encodePath(path, fees);
 
-        // Use the quoter to get an estimate of the output amount
-        uint256 expectedAmountOut = priceProvider.getQuote(
-            path[0],
-            path[path.length - 1],
-            amountIn
-        );
+        // Calculate expected output amount
+        uint256 expectedAmountOut;
+        if (path.length == 2) {
+            // Single hop: direct quote
+            expectedAmountOut = priceProvider.getQuote(
+                path[0],
+                path[1],
+                amountIn
+            );
+        } else {
+            // Multi-hop: calculate through each hop
+            uint256 currentAmount = amountIn;
+            for (uint i = 0; i < path.length - 1; i++) {
+                currentAmount = priceProvider.getQuote(
+                    path[i],
+                    path[i + 1],
+                    currentAmount
+                );
+            }
+            expectedAmountOut = currentAmount;
+        }
 
         // calculate minimum amount out considering slippage
         uint256 amountOutMinimum = expectedAmountOut - _calculateSlippage(expectedAmountOut);
@@ -95,15 +112,33 @@ contract UniswapV3Swapper {
         uint256 amountOut
     ) external returns (uint256 amountIn){
         require(path.length - 1 == fees.length, "Invalid path/fees");
+        require(path.length > 1, "Invalid path length");
+        require(amountOut > 0, "Amount must be greater than 0");
 
         // encode the path for multi-hop swap
         bytes memory encodedPath = _encodePath(path,fees);
 
-        uint256 expectedAmountIn = priceProvider.getAmountInForExactOut(
-            path[0],
-            path[path.length - 1],
-            amountOut
-        );
+        // Calculate expected input amount
+        uint256 expectedAmountIn;
+        if (path.length == 2) {
+            // Single hop: direct quote
+            expectedAmountIn = priceProvider.getAmountInForExactOut(
+                path[0],
+                path[1],
+                amountOut
+            );
+        } else {
+            // Multi-hop: calculate backwards through each hop
+            uint256 currentAmount = amountOut;
+            for (uint i = path.length - 1; i > 0; i--) {
+                currentAmount = priceProvider.getAmountInForExactOut(
+                    path[i - 1],
+                    path[i],
+                    currentAmount
+                );
+            }
+            expectedAmountIn = currentAmount;
+        }
 
         // Calculate maximum amount in considering slippage
         uint256 amountInMaximum = expectedAmountIn + _calculateSlippage(expectedAmountIn);
