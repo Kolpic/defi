@@ -4,7 +4,7 @@ pragma solidity 0.8.20;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {POOL} from "./Constants.sol";
-// You'll also need interfaces for aTokens and debtTokens to get total supply
+import {console} from "forge-std/console.sol";
 
 contract AaveV3Manager {
     IPool public constant pool = IPool(POOL);
@@ -15,12 +15,12 @@ contract AaveV3Manager {
     event Repaid(address indexed user, address indexed asset, uint256 amount);
 
     // Internal accounting for user deposits (shares)
-    mapping(address => mapping(address => uint256)) private s_userShares;
-    mapping(address => uint256) private s_totalShares;
+    mapping(address => mapping(address => uint256)) public s_userShares;
+    mapping(address => uint256) public s_totalShares;
 
     // Internal accounting for user borrows
-    mapping(address => mapping(address => uint256)) private s_userBorrowedPrincipal;
-    mapping(address => uint256) private s_totalBorrowedPrincipal;
+    mapping(address => mapping(address => uint256)) public s_userBorrowedPrincipal;
+    mapping(address => uint256) public s_totalBorrowedPrincipal;
 
     uint256 public constant MINIMUM_HEALTH_FACTOR = 1.1e18;
 
@@ -123,16 +123,10 @@ contract AaveV3Manager {
      */
     function repay(address _asset, uint256 _amount, uint256 _interestRateMode) external {
         require(_amount > 0, "Amount must be > 0");
-
         uint256 userOwed = debtOf(_asset, msg.sender);
         require(_amount <= userOwed, "Amount to repay exceeds debt");
 
-        // Transfer asset from user to this contract
-        IERC20(_asset).transferFrom(msg.sender, address(this), _amount);
-
-        uint256 totalPrincipal = s_totalBorrowedPrincipal[_asset];
         uint256 userPrincipal = s_userBorrowedPrincipal[_asset][msg.sender];
-
         uint256 principalToReduce = (userPrincipal * _amount) / userOwed;
 
         s_userBorrowedPrincipal[_asset][msg.sender] -= principalToReduce;
@@ -140,6 +134,8 @@ contract AaveV3Manager {
 
         // Approve the pool to spend the asset
         IERC20(_asset).approve(address(pool), _amount);
+        IERC20(_asset).transferFrom(msg.sender, address(this), _amount);
+
         pool.repay(_asset, _amount, _interestRateMode, address(this));
 
         emit Repaid(msg.sender, _asset, _amount);
