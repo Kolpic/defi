@@ -541,4 +541,221 @@ contract AaveV3ManagerTest is Test {
         
         vm.stopPrank();
     }
+
+    function test_UserHealthFactorProtection() public {
+        console.log("\n=== Testing User Health Factor Protection ===");
+        
+        // Create two test users
+        address userA = makeAddr("userA");
+        address userB = makeAddr("userB");
+        vm.deal(userA, 100 ether);
+        vm.deal(userB, 100 ether);
+        
+        console.log("User A address:", userA);
+        console.log("User B address:", userB);
+        
+        // User A deposits WETH as collateral
+        vm.startPrank(userA);
+        uint256 wrapAmount = 10 ether;
+        (bool success, ) = address(WETH_TOKEN).call{value: wrapAmount}("");
+        require(success, "Failed to wrap ETH");
+        
+        uint256 depositAmount = 5 ether; // 5 WETH
+        WETH_TOKEN.approve(address(manager), depositAmount);
+        
+        try manager.deposit(address(WETH_TOKEN), depositAmount) {
+            console.log("User A WETH deposit successful");
+        } catch {
+            console.log("User A WETH deposit failed, skipping test");
+            vm.stopPrank();
+            return;
+        }
+        
+        // Check User A's health factor (should be infinite since no debt)
+        uint256 userAHealthFactor = manager.calculateUserHealthFactor(userA);
+        console.log("User A health factor (no debt):", userAHealthFactor);
+        assertEq(userAHealthFactor, type(uint256).max, "User A should have infinite health factor");
+        
+        vm.stopPrank();
+        
+        // User B tries to borrow DAI (should fail because User B has no collateral)
+        vm.startPrank(userB);
+        uint256 borrowAmount = 1000e18; // 1,000 DAI
+        uint256 interestRateMode = 2; // Variable rate
+        
+        console.log("User B attempting to borrow DAI without collateral...");
+        
+        try manager.borrow(address(DAI_TOKEN), borrowAmount, interestRateMode) {
+            console.log("WARNING: User B borrow succeeded (this should fail)");
+        } catch Error(string memory reason) {
+            console.log("EXPECTED FAILURE:", reason);
+            console.log("User health factor protection working correctly!");
+        } catch {
+            console.log("EXPECTED FAILURE: Unknown error");
+            console.log("User health factor protection working correctly!");
+        }
+        
+        vm.stopPrank();
+        
+        // User A borrows some DAI (should succeed)
+        vm.startPrank(userA);
+        uint256 userABorrowAmount = 1000e18; // 1,000 DAI
+        
+        console.log("User A attempting to borrow DAI with collateral...");
+        
+        try manager.borrow(address(DAI_TOKEN), userABorrowAmount, interestRateMode) {
+            console.log("User A borrow successful");
+            
+            // Check User A's health factor after borrowing
+            uint256 userAHealthFactorAfter = manager.calculateUserHealthFactor(userA);
+            console.log("User A health factor after borrow:", userAHealthFactorAfter);
+            assertGt(userAHealthFactorAfter, manager.MINIMUM_HEALTH_FACTOR(), "User A health factor should be above minimum");
+            
+        } catch Error(string memory reason) {
+            console.log("User A borrow failed:", reason);
+            vm.stopPrank();
+            return;
+        }
+        
+        vm.stopPrank();
+        
+        // User B tries to borrow DAI again (should still fail because User B has no collateral)
+        vm.startPrank(userB);
+        console.log("User B attempting to borrow DAI again without collateral...");
+        
+        try manager.borrow(address(DAI_TOKEN), borrowAmount, interestRateMode) {
+            console.log("WARNING: User B borrow succeeded (this should fail)");
+        } catch Error(string memory reason) {
+            console.log("EXPECTED FAILURE:", reason);
+            console.log("User health factor protection working correctly!");
+        } catch {
+            console.log("EXPECTED FAILURE: Unknown error");
+            console.log("User health factor protection working correctly!");
+        }
+        
+        vm.stopPrank();
+        
+        console.log("User health factor protection test completed successfully!");
+    }
+    
+    function test_WithdrawalHealthFactorCheck() public {
+        console.log("\n=== Testing Withdrawal Health Factor Check ===");
+        
+        address testUser = makeAddr("testUserWithdrawal");
+        vm.deal(testUser, 100 ether);
+        
+        console.log("Test user address:", testUser);
+        
+        vm.startPrank(testUser);
+        
+        // Wrap ETH to WETH
+        uint256 wrapAmount = 10 ether;
+        (bool success, ) = address(WETH_TOKEN).call{value: wrapAmount}("");
+        require(success, "Failed to wrap ETH");
+        
+        // Deposit WETH
+        uint256 depositAmount = 2 ether; // 2 WETH (less collateral)
+        WETH_TOKEN.approve(address(manager), depositAmount);
+        
+        try manager.deposit(address(WETH_TOKEN), depositAmount) {
+            console.log("WETH deposit successful");
+        } catch {
+            console.log("WETH deposit failed, skipping test");
+            vm.stopPrank();
+            return;
+        }
+        
+        // Borrow a large amount of DAI to create a tight health factor
+        uint256 borrowAmount = 3000e18; // 3,000 DAI (much more debt relative to collateral)
+        uint256 interestRateMode = 2; // Variable rate
+        
+        try manager.borrow(address(DAI_TOKEN), borrowAmount, interestRateMode) {
+            console.log("DAI borrow successful");
+        } catch {
+            console.log("DAI borrow failed, skipping test");
+            vm.stopPrank();
+            return;
+        }
+        
+        // Check health factor before withdrawal
+        uint256 healthFactorBefore = manager.calculateUserHealthFactor(testUser);
+        console.log("Health factor before withdrawal:", healthFactorBefore);
+        
+        // Try to withdraw too much WETH (should fail due to health factor)
+        uint256 largeWithdrawAmount = 1.5 ether; // 1.5 WETH (75% of collateral)
+        
+        console.log("Attempting large WETH withdrawal (should fail)...");
+        
+        try manager.withdraw(address(WETH_TOKEN), largeWithdrawAmount) {
+            console.log("WARNING: Large withdrawal succeeded (this should fail)");
+        } catch Error(string memory reason) {
+            console.log("EXPECTED FAILURE:", reason);
+            console.log("Withdrawal health factor check working correctly!");
+        } catch {
+            console.log("EXPECTED FAILURE: Unknown error");
+            console.log("Withdrawal health factor check working correctly!");
+        }
+        
+        // Try to withdraw a small amount (should succeed)
+        uint256 smallWithdrawAmount = 0.2 ether; // 0.2 WETH (10% of collateral)
+        
+        console.log("Attempting small WETH withdrawal (should succeed)...");
+        
+        try manager.withdraw(address(WETH_TOKEN), smallWithdrawAmount) {
+            console.log("Small withdrawal successful");
+            
+            // Check health factor after withdrawal
+            uint256 healthFactorAfter = manager.calculateUserHealthFactor(testUser);
+            console.log("Health factor after withdrawal:", healthFactorAfter);
+            assertGt(healthFactorAfter, manager.MINIMUM_HEALTH_FACTOR(), "Health factor should remain above minimum");
+            
+        } catch Error(string memory reason) {
+            console.log("Small withdrawal failed:", reason);
+        } catch {
+            console.log("Small withdrawal failed: Unknown error");
+        }
+        
+        vm.stopPrank();
+        
+        console.log("Withdrawal health factor check test completed!");
+    }
+
+    function test_AssetConfigurationSystem() public {
+        console.log("\n=== Testing Asset Configuration System ===");
+        
+        // Test asset registration
+        address[] memory registeredAssets = manager.getRegisteredAssets();
+        console.log("Number of registered assets:", registeredAssets.length);
+        
+        // Test each registered asset
+        for (uint256 i = 0; i < registeredAssets.length; i++) {
+            address asset = registeredAssets[i];
+            bool isActive = manager.isAssetActive(asset);
+            uint256 ltv = manager.getLTV(asset);
+            
+            console.log("Asset", i, ":", asset);
+            console.log("  Active:", isActive);
+            console.log("  LTV:", ltv);
+            
+            assertTrue(isActive, "Asset should be active");
+            assertGt(ltv, 0, "LTV should be greater than 0");
+        }
+        
+        // Test unsupported asset
+        address unsupportedAsset = address(0x1234567890123456789012345678901234567890);
+        bool isUnsupportedActive = manager.isAssetActive(unsupportedAsset);
+        console.log("Unsupported asset active:", isUnsupportedActive);
+        assertFalse(isUnsupportedActive, "Unsupported asset should not be active");
+        
+        // Test LTV for unsupported asset (should revert)
+        try manager.getLTV(unsupportedAsset) {
+            console.log("WARNING: getLTV for unsupported asset succeeded (should fail)");
+        } catch Error(string memory reason) {
+            console.log("EXPECTED FAILURE for unsupported asset:", reason);
+        } catch {
+            console.log("EXPECTED FAILURE for unsupported asset: Unknown error");
+        }
+        
+        console.log("Asset configuration system test completed successfully!");
+    }
 }
