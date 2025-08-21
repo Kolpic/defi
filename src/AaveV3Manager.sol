@@ -2,12 +2,13 @@
 pragma solidity 0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IPool} from "./interfaces/IPool.sol";
 import {IAaveOracle} from "./interfaces/IOracle.sol";
 import {POOL, ORACLE, WETH, DAI, USDC, USDT} from "./Constants.sol";
 import {console} from "forge-std/console.sol";
 
-contract AaveV3Manager {
+contract AaveV3Manager is ReentrancyGuard {
     IPool public constant pool = IPool(POOL);
     IAaveOracle public constant AAVE_ORACLE = IAaveOracle(ORACLE);
 
@@ -107,7 +108,7 @@ contract AaveV3Manager {
      * @param _asset The address of the asset to deposit.
      * @param _amount The amount of the asset to deposit.
      */
-    function deposit(address _asset, uint256 _amount) external {
+    function deposit(address _asset, uint256 _amount) external nonReentrant {
         require(_amount > 0, "Amount must be > 0");
         require(isAssetActive(_asset), "Asset not supported");
 
@@ -147,7 +148,7 @@ contract AaveV3Manager {
      * @param _asset The address of the asset to withdraw.
      * @param _amount The amount of the asset to withdraw.
      */
-    function withdraw(address _asset, uint256 _amount) external {
+    function withdraw(address _asset, uint256 _amount) external nonReentrant {
         require(_amount > 0, "Amount must be > 0");
         require(isAssetActive(_asset), "Asset not supported");
 
@@ -155,7 +156,7 @@ contract AaveV3Manager {
         uint256 totalAssetsInPool = _getTotalAssetsInPool(_asset);
         require(totalShares > 0 && totalAssetsInPool > 0, "Nothing to withdraw");
 
-        uint256 sharesToBurn = (_amount * totalShares + (totalAssetsInPool / 2)) / totalAssetsInPool;
+        uint256 sharesToBurn = (_amount * totalShares) / totalAssetsInPool;
         require(sharesToBurn > 0, "Shares to burn must be > 0");
 
         uint256 userShares = s_userShares[_asset][msg.sender];
@@ -182,7 +183,7 @@ contract AaveV3Manager {
      * @param _amount The amount to borrow.
      * @param _interestRateMode 1 for Stable, 2 for Variable.
      */
-    function borrow(address _asset, uint256 _amount, uint256 _interestRateMode) external {
+    function borrow(address _asset, uint256 _amount, uint256 _interestRateMode) external nonReentrant {
         require(_amount > 0, "Amount must be > 0");
         require(_interestRateMode == 2, "Only variable rate borrowing is supported");
         require(isAssetActive(_asset), "Asset not supported");
@@ -211,7 +212,7 @@ contract AaveV3Manager {
      * @param _amount The amount of principal + interest to repay.
      * @param _interestRateMode The interest rate mode of the debt.
      */
-    function repay(address _asset, uint256 _amount, uint256 _interestRateMode) external {
+    function repay(address _asset, uint256 _amount, uint256 _interestRateMode) external nonReentrant {
         require(_amount > 0, "Amount must be > 0");
         require(_interestRateMode == 2, "Only variable rate repay is supported");
         require(isAssetActive(_asset), "Asset not supported");
@@ -296,9 +297,15 @@ contract AaveV3Manager {
      * @notice Internal function to calculate user health factor using real-time data and liquidation threshold.
      * @notice Health Factor = (Collateral Value × Liquidation Threshold) / Borrowed Value
      * @param _user The address of the user.
+     * @param _simulateAsset Optional asset to simulate different debt for (address(0) for no simulation).
+     * @param _simulatedDebt Optional simulated debt amount for the specified asset.
      * @return The user's health factor.
      */
-    function _calculateUserHealthFactor(address _user) private view returns (uint256) {
+    function _calculateUserHealthFactor(
+        address _user, 
+        address _simulateAsset, 
+        uint256 _simulatedDebt
+    ) private view returns (uint256) {
         uint256 totalCollateralValue = 0;
         uint256 totalBorrowedValue = 0;
 
@@ -321,8 +328,12 @@ contract AaveV3Manager {
                 totalCollateralValue += collateralValue;
             }
             
-            // Use real-time debt (includes accrued interest)
+            // Use real-time debt (includes accrued interest) or simulated debt
             uint256 borrowedAmount = debtOf(asset, _user);
+            if (_simulateAsset != address(0) && asset == _simulateAsset) {
+                borrowedAmount = _simulatedDebt; // Use simulated debt for this asset
+            }
+            
             if (borrowedAmount > 0) {
                 uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
                 uint256 borrowedValue = (borrowedAmount * assetPrice) / 1e26;
@@ -335,6 +346,30 @@ contract AaveV3Manager {
         }
 
         return (totalCollateralValue * 1e18) / totalBorrowedValue;
+    }
+
+    /**
+     * @notice Overloaded function for normal health factor calculation (no simulation).
+     * @param _user The address of the user.
+     * @return The user's health factor.
+     */
+    function _calculateUserHealthFactor(address _user) private view returns (uint256) {
+        return _calculateUserHealthFactor(_user, address(0), 0);
+    }
+
+    /**
+     * @notice Overloaded function for health factor calculation with simulated debt.
+     * @param _user The user address.
+     * @param _asset The asset being simulated.
+     * @param _simulatedDebt The simulated debt amount.
+     * @return The user's health factor with simulated debt.
+     */
+    function _calculateUserHealthFactorWithSimulatedDebt(
+        address _user, 
+        address _asset, 
+        uint256 _simulatedDebt
+    ) private view returns (uint256) {
+        return _calculateUserHealthFactor(_user, _asset, _simulatedDebt);
     }
 
     /**
@@ -353,50 +388,5 @@ contract AaveV3Manager {
          * Bits 56-63:  Reserve Factor
          */
         return (config.data >> 16) & 0xFFFF;
-    }
-
-    /**
-     * @notice Helper function for borrow simulation - calculates health factor with simulated debt.
-     * @param _user The user address.
-     * @param _asset The asset being borrowed.
-     * @param _simulatedDebt The simulated debt amount.
-     * @return The user's health factor with simulated debt.
-     */
-    function _calculateUserHealthFactorWithSimulatedDebt(address _user, address _asset, uint256 _simulatedDebt) private view returns (uint256) {
-        uint256 totalCollateralValue = 0;
-        uint256 totalBorrowedValue = 0;
-
-        address[] memory registeredAssets = getRegisteredAssets();
-        
-        for (uint256 i = 0; i < registeredAssets.length; i++) {
-            address asset = registeredAssets[i];
-            
-            uint256 collateralAmount = balanceOf(asset, _user);
-            if (collateralAmount > 0) {
-                uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
-                IPool.ReserveData memory reserveData = pool.getReserveData(asset);
-                uint256 liquidationThreshold = _getLiquidationThreshold(reserveData.configuration);
-                uint256 collateralValue = (collateralAmount * assetPrice * liquidationThreshold) / (1e26 * 10000);
-                totalCollateralValue += collateralValue;
-            }
-            
-            uint256 borrowedAmount = debtOf(asset, _user);
-            if (asset == _asset) {
-                borrowedAmount = _simulatedDebt; // Use simulated debt for this asset
-            }
-            
-            if (borrowedAmount > 0) {
-                uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
-                uint256 borrowedValue = (borrowedAmount * assetPrice) / 1e26;
-                totalBorrowedValue += borrowedValue;
-            }
-        }
-
-        if (totalBorrowedValue == 0) {
-            return type(uint256).max;
-        }
-
-        // Health Factor = (Collateral Value × Liquidation Threshold) / Borrowed Value
-        return (totalCollateralValue * 1e18) / totalBorrowedValue;
     }
 }

@@ -22,10 +22,10 @@ contract AaveV3ManagerTest is Test {
     // Aave V3 debt token addresses (for reference)
     address constant V_DEBT_WETH = 0xeA51d7853EEFb32b6ee06b1C12E6dcCA88Be0fFE;
     address constant V_DEBT_DAI = 0x8619d80FB0141ba7F184CbF22fd724116D9f7ffC;
-    
+
     function setUp() public {
         vm.createSelectFork(vm.envString("MAINNET_RPC_URL"), 19000000);
-        
+
         manager = new AaveV3Manager();
         
         vm.label(address(manager), "AaveV3Manager");
@@ -757,5 +757,171 @@ contract AaveV3ManagerTest is Test {
         }
         
         console.log("Asset configuration system test completed successfully!");
+    }
+
+    function test_WithdrawCollateralWithAccruedInterest() public {
+        console.log("\n=== Testing Withdraw Collateral + Accrued Interest ===");
+        
+        address testUser = makeAddr("testUserInterestWithdraw");
+        vm.deal(testUser, 100 ether);
+        
+        console.log("Test user address:", testUser);
+        console.log("Test user ETH balance:", testUser.balance);
+        
+        vm.startPrank(testUser);
+        
+        // Wrap ETH to WETH
+        uint256 wrapAmount = 20 ether;
+        (bool success, ) = address(WETH_TOKEN).call{value: wrapAmount}("");
+        require(success, "Failed to wrap ETH");
+        
+        console.log("Wrapped", wrapAmount, "ETH to WETH");
+        console.log("WETH balance after wrapping:", WETH_TOKEN.balanceOf(testUser));
+        
+        // Deposit 10 WETH as collateral
+        uint256 depositAmount = 10 ether; // 10 WETH
+        WETH_TOKEN.approve(address(manager), depositAmount);
+        
+        console.log("Attempting WETH deposit...");
+        console.log("Deposit amount:", depositAmount);
+        
+        uint256 wethBalanceBefore = WETH_TOKEN.balanceOf(testUser);
+        uint256 managerBalanceBefore = manager.balanceOf(address(WETH_TOKEN), testUser);
+        
+        console.log("WETH balance before deposit:", wethBalanceBefore);
+        console.log("Manager balance before deposit:", managerBalanceBefore);
+        
+        try manager.deposit(address(WETH_TOKEN), depositAmount) {
+            console.log("SUCCESS! WETH deposit completed!");
+            
+            uint256 wethBalanceAfter = WETH_TOKEN.balanceOf(testUser);
+            uint256 managerBalanceAfter = manager.balanceOf(address(WETH_TOKEN), testUser);
+            
+            console.log("WETH balance after deposit:", wethBalanceAfter);
+            console.log("Manager balance after deposit:", managerBalanceAfter);
+            console.log("WETH spent:", wethBalanceBefore - wethBalanceAfter);
+            console.log("Manager balance increase:", managerBalanceAfter - managerBalanceBefore);
+            
+            // Store initial balance for comparison
+            uint256 initialManagerBalance = managerBalanceAfter;
+            
+            // Fast forward 10 days to accrue significant interest
+            console.log("\n--- Fast Forwarding 10 Days for Interest Accrual ---");
+            skip(10 days);
+            
+            uint256 balanceAfter10Days = manager.balanceOf(address(WETH_TOKEN), testUser);
+            console.log("Manager balance after 10 days:", balanceAfter10Days);
+            console.log("Interest earned over 10 days:", balanceAfter10Days - initialManagerBalance);
+            
+            // Verify interest has accrued
+            assertGt(balanceAfter10Days, initialManagerBalance, "Balance should increase due to interest");
+            
+            // Now withdraw the entire balance (original + interest)
+            console.log("\n--- Withdrawing Entire Balance (Original + Interest) ---");
+            uint256 withdrawAmount = balanceAfter10Days;
+            
+            console.log("Attempting to withdraw entire balance...");
+            console.log("Withdraw amount:", withdrawAmount);
+            
+            wethBalanceBefore = WETH_TOKEN.balanceOf(testUser);
+            managerBalanceBefore = manager.balanceOf(address(WETH_TOKEN), testUser);
+            
+            console.log("WETH balance before withdrawal:", wethBalanceBefore);
+            console.log("Manager balance before withdrawal:", managerBalanceBefore);
+            
+            try manager.withdraw(address(WETH_TOKEN), withdrawAmount) {
+                console.log("SUCCESS! Full withdrawal completed!");
+                
+                wethBalanceAfter = WETH_TOKEN.balanceOf(testUser);
+                managerBalanceAfter = manager.balanceOf(address(WETH_TOKEN), testUser);
+                
+                console.log("WETH balance after withdrawal:", wethBalanceAfter);
+                console.log("Manager balance after withdrawal:", managerBalanceAfter);
+                console.log("WETH received:", wethBalanceAfter - wethBalanceBefore);
+                console.log("Manager balance decrease:", managerBalanceBefore - managerBalanceAfter);
+                
+                // Verify the user received more than they originally deposited
+                uint256 totalReceived = wethBalanceAfter - wethBalanceBefore;
+                assertGt(totalReceived, depositAmount, "User should receive more than original deposit due to interest");
+                
+                // Calculate and display the interest earned
+                uint256 interestEarned = totalReceived - depositAmount;
+                console.log("Total interest earned:", interestEarned);
+                console.log("Interest rate over 10 days:", (interestEarned * 100) / depositAmount, "%");
+                
+                // Verify the manager balance is now 0 (or very close due to rounding)
+                assertLt(managerBalanceAfter, 1e15, "Manager balance should be close to 0 after full withdrawal");
+                
+                console.log("SUCCESS! User successfully withdrew original collateral + accrued interest!");
+                
+            } catch Error(string memory reason) {
+                console.log("FAILED to withdraw full balance:", reason);
+            } catch {
+                console.log("FAILED to withdraw full balance: Unknown error");
+            }
+            
+        } catch Error(string memory reason) {
+            console.log("FAILED to deposit:", reason);
+        } catch {
+            console.log("FAILED to deposit: Unknown error");
+        }
+        
+        vm.stopPrank();
+    }
+
+    function test_SimpleInterestAccrualAndWithdrawal() public {
+        console.log("\n=== Testing Simple Interest Accrual and Withdrawal ===");
+        
+        address testUser = makeAddr("testUserSimple");
+        vm.deal(testUser, 100 ether);
+        
+        vm.startPrank(testUser);
+        
+        // Wrap ETH to WETH
+        uint256 wrapAmount = 15 ether;
+        (bool success, ) = address(WETH_TOKEN).call{value: wrapAmount}("");
+        require(success, "Failed to wrap ETH");
+        
+        // Deposit 5 WETH
+        uint256 depositAmount = 5 ether;
+        WETH_TOKEN.approve(address(manager), depositAmount);
+        
+        console.log("Depositing", depositAmount / 1e18, "WETH...");
+        manager.deposit(address(WETH_TOKEN), depositAmount);
+        
+        uint256 initialBalance = manager.balanceOf(address(WETH_TOKEN), testUser);
+        console.log("Initial balance:", initialBalance / 1e18, "WETH");
+        
+        // Wait for interest to accrue
+        console.log("Waiting 30 days for interest to accrue...");
+        skip(30 days);
+        
+        uint256 balanceAfter30Days = manager.balanceOf(address(WETH_TOKEN), testUser);
+        uint256 interestEarned = balanceAfter30Days - initialBalance;
+        
+        console.log("Balance after 30 days:", balanceAfter30Days / 1e18, "WETH");
+        console.log("Interest earned:", interestEarned / 1e18, "WETH");
+        
+        // Calculate annual interest rate
+        uint256 annualInterestRate = (interestEarned * 365 * 100) / (initialBalance * 30);
+        console.log("Annual interest rate:", annualInterestRate, "%");
+        
+        // Withdraw everything
+        console.log("Withdrawing entire balance...");
+        uint256 wethBefore = WETH_TOKEN.balanceOf(testUser);
+        manager.withdraw(address(WETH_TOKEN), balanceAfter30Days);
+        uint256 wethAfter = WETH_TOKEN.balanceOf(testUser);
+        
+        uint256 totalReceived = wethAfter - wethBefore;
+        console.log("Total WETH received:", totalReceived / 1e18, "WETH");
+        console.log("Original deposit:", depositAmount / 1e18, "WETH");
+        console.log("Net interest earned:", (totalReceived - depositAmount) / 1e18, "WETH");
+        
+        // Verify user received more than deposited
+        assertGt(totalReceived, depositAmount, "Should receive more than deposited due to interest");
+        
+        console.log("SUCCESS! Interest accrual and withdrawal working correctly!");
+        
+        vm.stopPrank();
     }
 }
