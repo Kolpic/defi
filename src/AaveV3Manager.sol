@@ -38,6 +38,13 @@ contract AaveV3Manager is ReentrancyGuard {
 
     uint256 public constant MINIMUM_HEALTH_FACTOR = 1.1e18;
     uint256 public constant DEAD_SHARES = 1e3; // 1000 wei
+    
+    // Operation types for health factor calculation
+    uint256 public constant OPERATION_NONE = 0;
+    uint256 public constant OPERATION_DEPOSIT = 1;
+    uint256 public constant OPERATION_WITHDRAW = 2;
+    uint256 public constant OPERATION_BORROW = 3;
+    uint256 public constant OPERATION_REPAY = 4;
 
     constructor() {
         _initializeAssetConfigs();
@@ -163,7 +170,7 @@ contract AaveV3Manager is ReentrancyGuard {
         require(userShares >= sharesToBurn, "Insufficient shares");
 
         // Check health factor before updating state
-        uint256 userHealthFactor = _calculateUserHealthFactor(msg.sender);
+        uint256 userHealthFactor = calculateHealthFactor(msg.sender, _asset, _amount, OPERATION_WITHDRAW, 0);
         require(userHealthFactor > MINIMUM_HEALTH_FACTOR, "Withdrawal would make health factor too low");
 
         s_userShares[_asset][msg.sender] -= sharesToBurn;
@@ -188,13 +195,9 @@ contract AaveV3Manager is ReentrancyGuard {
         require(_interestRateMode == 2, "Only variable rate borrowing is supported");
         require(isAssetActive(_asset), "Asset not supported");
 
-        // Check health factor before borrowing
-        uint256 userHealthFactor = _calculateUserHealthFactor(msg.sender);
-        require(userHealthFactor > MINIMUM_HEALTH_FACTOR, "User health factor too low");
-
         // Check health factor after borrowing (simulate the borrow)
-        uint256 simulatedDebt = debtOf(_asset, msg.sender) + _amount;
-        require(_calculateUserHealthFactorWithSimulatedDebt(msg.sender, _asset, simulatedDebt) > MINIMUM_HEALTH_FACTOR, "User health factor too low after borrowing");
+        uint256 userHealthFactor = calculateHealthFactor(msg.sender, _asset, _amount, OPERATION_BORROW, _interestRateMode);
+        require(userHealthFactor > MINIMUM_HEALTH_FACTOR, "User health factor too low after borrowing");
 
         pool.borrow(_asset, _amount, _interestRateMode, 0, address(this));
 
@@ -219,6 +222,10 @@ contract AaveV3Manager is ReentrancyGuard {
 
         uint256 userOwed = debtOf(_asset, msg.sender);
         require(_amount <= userOwed, "Amount to repay exceeds debt");
+
+        // Check health factor after repayment (should improve health factor)
+        uint256 userHealthFactor = calculateHealthFactor(msg.sender, _asset, _amount, OPERATION_REPAY, _interestRateMode);
+        require(userHealthFactor > MINIMUM_HEALTH_FACTOR, "Repayment would result in health factor too low");
 
         uint256 userPrincipal = s_userBorrowedPrincipal[_asset][msg.sender];
         uint256 principalToReduce = (userPrincipal * _amount) / userOwed;
@@ -272,7 +279,83 @@ contract AaveV3Manager is ReentrancyGuard {
      * @return The user's health factor (in wei, 1e18 = 1.0).
      */
     function calculateUserHealthFactor(address _user) public view returns (uint256) {
-        return _calculateUserHealthFactor(_user);
+        return calculateHealthFactor(_user, address(0), 0, OPERATION_NONE, 0);
+    }
+
+    /**
+     * @notice Calculates the health factor for a user after a specific operation.
+     * @param _user The address of the user.
+     * @param _operationAsset The asset involved in the operation (address(0) for no operation).
+     * @param _operationAmount The amount involved in the operation.
+     * @param _operationType Use constants: OPERATION_NONE, OPERATION_DEPOSIT, OPERATION_WITHDRAW, OPERATION_BORROW, OPERATION_REPAY.
+     * @param _interestRateMode The interest rate mode for borrow/repay operations (1 for stable, 2 for variable). Currently not used but kept for future extensibility.
+     * @return The user's health factor after the operation.
+     */
+    function calculateHealthFactor(
+        address _user,
+        address _operationAsset,
+        uint256 _operationAmount,
+        uint256 _operationType,
+        uint256 _interestRateMode
+    ) public view returns (uint256) {
+        uint256 totalCollateralValue = 0;
+        uint256 totalBorrowedValue = 0;
+
+        address[] memory registeredAssets = getRegisteredAssets();
+        
+        for (uint256 i = 0; i < registeredAssets.length; i++) {
+            address asset = registeredAssets[i];
+            
+            // Calculate collateral amount (deposits)
+            uint256 collateralAmount = balanceOf(asset, _user);
+            
+            // Adjust collateral based on operation
+            if (_operationType == OPERATION_DEPOSIT && asset == _operationAsset) {
+                // Deposit operation - add to collateral
+                collateralAmount += _operationAmount;
+            } else if (_operationType == OPERATION_WITHDRAW && asset == _operationAsset) {
+                // Withdraw operation - subtract from collateral
+                collateralAmount = collateralAmount > _operationAmount ? collateralAmount - _operationAmount : 0;
+            }
+            
+            if (collateralAmount > 0) {
+                uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
+                
+                // Get liquidation threshold from Aave pool
+                IPool.ReserveData memory reserveData = pool.getReserveData(asset);
+                uint256 liquidationThreshold = _getLiquidationThreshold(reserveData.configuration);
+                
+                // liquidationThreshold is in basis points (e.g., 8250 = 82.5%)
+                uint256 collateralValue = (collateralAmount * assetPrice * liquidationThreshold) / (1e26 * 10000);
+                totalCollateralValue += collateralValue;
+            }
+            
+            // Calculate borrowed amount (debts)
+            uint256 borrowedAmount = debtOf(asset, _user);
+            
+            // Adjust debt based on operation
+            if (_operationType == OPERATION_BORROW && asset == _operationAsset) {
+                // For borrow operations, add the borrowed amount
+                borrowedAmount += _operationAmount;
+            } else if (_operationType == OPERATION_REPAY && asset == _operationAsset) {
+                // For repay operations, subtract the repaid amount
+                if (_operationAmount <= borrowedAmount) {
+                    borrowedAmount -= _operationAmount;
+                }
+            }
+            
+            if (borrowedAmount > 0) {
+                uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
+                uint256 borrowedValue = (borrowedAmount * assetPrice) / 1e26;
+                totalBorrowedValue += borrowedValue;
+            }
+        }
+
+        if (totalBorrowedValue == 0) {
+            return type(uint256).max; // No debt = infinite health factor
+        }
+
+        return (totalCollateralValue * 1e18) / totalBorrowedValue;
     }
 
     /**
@@ -291,85 +374,6 @@ contract AaveV3Manager is ReentrancyGuard {
         uint256 variableDebt = IERC20(reserveData.variableDebtTokenAddress).balanceOf(address(this));
         uint256 stableDebt = IERC20(reserveData.stableDebtTokenAddress).balanceOf(address(this));
         return variableDebt + stableDebt;
-    }
-
-    /**
-     * @notice Internal function to calculate user health factor using real-time data and liquidation threshold.
-     * @notice Health Factor = (Collateral Value × Liquidation Threshold) / Borrowed Value
-     * @param _user The address of the user.
-     * @param _simulateAsset Optional asset to simulate different debt for (address(0) for no simulation).
-     * @param _simulatedDebt Optional simulated debt amount for the specified asset.
-     * @return The user's health factor.
-     */
-    function _calculateUserHealthFactor(
-        address _user, 
-        address _simulateAsset, 
-        uint256 _simulatedDebt
-    ) private view returns (uint256) {
-        uint256 totalCollateralValue = 0;
-        uint256 totalBorrowedValue = 0;
-
-        address[] memory registeredAssets = getRegisteredAssets();
-        
-        for (uint256 i = 0; i < registeredAssets.length; i++) {
-            address asset = registeredAssets[i];
-            
-            // Use real-time balance (includes accrued interest)
-            uint256 collateralAmount = balanceOf(asset, _user);
-            if (collateralAmount > 0) {
-                uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
-                
-                // Get liquidation threshold from Aave pool
-                IPool.ReserveData memory reserveData = pool.getReserveData(asset);
-                uint256 liquidationThreshold = _getLiquidationThreshold(reserveData.configuration);
-                
-                // liquidationThreshold is in basis points (e.g., 8250 = 82.5%)
-                uint256 collateralValue = (collateralAmount * assetPrice * liquidationThreshold) / (1e26 * 10000);
-                totalCollateralValue += collateralValue;
-            }
-            
-            // Use real-time debt (includes accrued interest) or simulated debt
-            uint256 borrowedAmount = debtOf(asset, _user);
-            if (_simulateAsset != address(0) && asset == _simulateAsset) {
-                borrowedAmount = _simulatedDebt; // Use simulated debt for this asset
-            }
-            
-            if (borrowedAmount > 0) {
-                uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
-                uint256 borrowedValue = (borrowedAmount * assetPrice) / 1e26;
-                totalBorrowedValue += borrowedValue;
-            }
-        }
-
-        if (totalBorrowedValue == 0) {
-            return type(uint256).max; // No debt = infinite health factor
-        }
-
-        return (totalCollateralValue * 1e18) / totalBorrowedValue;
-    }
-
-    /**
-     * @notice Overloaded function for normal health factor calculation (no simulation).
-     * @param _user The address of the user.
-     * @return The user's health factor.
-     */
-    function _calculateUserHealthFactor(address _user) private view returns (uint256) {
-        return _calculateUserHealthFactor(_user, address(0), 0);
-    }
-
-    /**
-     * @notice Overloaded function for health factor calculation with simulated debt.
-     * @param _user The user address.
-     * @param _asset The asset being simulated.
-     * @param _simulatedDebt The simulated debt amount.
-     * @return The user's health factor with simulated debt.
-     */
-    function _calculateUserHealthFactorWithSimulatedDebt(
-        address _user, 
-        address _asset, 
-        uint256 _simulatedDebt
-    ) private view returns (uint256) {
-        return _calculateUserHealthFactor(_user, _asset, _simulatedDebt);
     }
 
     /**
