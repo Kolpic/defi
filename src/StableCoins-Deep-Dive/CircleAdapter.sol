@@ -112,10 +112,9 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
         uint256 amountToBridge = collateralAmount;
         uint256 currentHealthFactor = type(uint256).max; // Default for USDC (no borrow)
 
-        TransferHelper.safeTransferFrom(address(usdc), msg.sender, address(this), collateralAmount);
+        TransferHelper.safeTransferFrom(collateralAsset, msg.sender, address(this), collateralAmount);
 
         if (collateralAsset != address(usdc)) {
-            TransferHelper.safeTransferFrom(collateralAsset, msg.sender, address(this), collateralAmount);
             TransferHelper.safeApprove(collateralAsset, address(aavePool), collateralAmount);
 
             // Supply to Aave on behalf of the USER (they own the position)
