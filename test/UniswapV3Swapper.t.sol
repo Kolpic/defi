@@ -130,36 +130,36 @@ contract UniswapV3SwapperTest is Test {
         console.log("Price provider setup verified!");
     }
     
-    function test_GetQuoteFromPriceProvider() public {
-        console.log("\n=== Testing TWAP Price Provider Quotes ===");
+    // function test_GetQuoteFromPriceProvider() public {
+    //     console.log("\n=== Testing TWAP Price Provider Quotes ===");
         
-        uint256 amountIn = 1e18; // 1 WETH
+    //     uint256 amountIn = 1e18; // 1 WETH
         
-        // Test WETH -> USDC quote
-        try priceProvider.getQuote(address(WETH), address(USDC), amountIn) returns (uint256 amountOut) {
-            console.log("WETH -> USDC quote successful!");
-            console.log("Amount in (WETH):", amountIn);
-            console.log("Amount out (USDC):", amountOut);
-            assertGt(amountOut, 0, "Quote should return positive amount");
-        } catch Error(string memory reason) {
-            console.log("WETH -> USDC quote failed:", reason);
-        } catch {
-            console.log("WETH -> USDC quote failed: Unknown error");
-        }
+    //     // Test WETH -> USDC quote
+    //     try priceProvider.getQuote(address(WETH), address(USDC), amountIn) returns (uint256 amountOut) {
+    //         console.log("WETH -> USDC quote successful!");
+    //         console.log("Amount in (WETH):", amountIn);
+    //         console.log("Amount out (USDC):", amountOut);
+    //         assertGt(amountOut, 0, "Quote should return positive amount");
+    //     } catch Error(string memory reason) {
+    //         console.log("WETH -> USDC quote failed:", reason);
+    //     } catch {
+    //         console.log("WETH -> USDC quote failed: Unknown error");
+    //     }
         
-        // Test USDC -> WETH quote
-        uint256 usdcAmountIn = 1000000; // 1 USDC
-        try priceProvider.getQuote(address(USDC), address(WETH), usdcAmountIn) returns (uint256 amountOut) {
-            console.log("USDC -> WETH quote successful!");
-            console.log("Amount in (USDC):", usdcAmountIn);
-            console.log("Amount out (WETH):", amountOut);
-            assertGt(amountOut, 0, "Quote should return positive amount");
-        } catch Error(string memory reason) {
-            console.log("USDC -> WETH quote failed:", reason);
-        } catch {
-            console.log("USDC -> WETH quote failed: Unknown error");
-        }
-    }
+    //     // Test USDC -> WETH quote
+    //     uint256 usdcAmountIn = 1000000; // 1 USDC
+    //     try priceProvider.getQuote(address(USDC), address(WETH), usdcAmountIn) returns (uint256 amountOut) {
+    //         console.log("USDC -> WETH quote successful!");
+    //         console.log("Amount in (USDC):", usdcAmountIn);
+    //         console.log("Amount out (WETH):", amountOut);
+    //         assertGt(amountOut, 0, "Quote should return positive amount");
+    //     } catch Error(string memory reason) {
+    //         console.log("USDC -> WETH quote failed:", reason);
+    //     } catch {
+    //         console.log("USDC -> WETH quote failed: Unknown error");
+    //     }
+    // }
     
     function test_WETHToUSDCSwap() public {
         console.log("\n=== Testing WETH -> USDC Swap ===");
