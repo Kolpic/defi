@@ -28,6 +28,7 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
     ITokenMessenger public immutable tokenMessenger;
     IERC20 public immutable usdc;
     ICreditDelegationToken public immutable variableDebtUsdc;
+    uint256 trigger;
 
     uint256 constant INTEREST_RATE_MODE = 2; // Variable rate
     uint16 constant REFERRAL_CODE = 0;
