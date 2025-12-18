@@ -109,8 +109,10 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
         uint32 destinationDomain,
         bytes32 mintRecipient
     ) external override nonReentrant {
-        uint256 amountToBridge;
+        uint256 amountToBridge = collateralAmount;
         uint256 currentHealthFactor = type(uint256).max; // Default for USDC (no borrow)
+
+        TransferHelper.safeTransferFrom(address(usdc), msg.sender, address(this), collateralAmount);
 
         if (collateralAsset != address(usdc)) {
             TransferHelper.safeTransferFrom(collateralAsset, msg.sender, address(this), collateralAmount);
@@ -137,11 +139,8 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
             (,,,,, currentHealthFactor) = aavePool.getUserAccountData(msg.sender);
 
             amountToBridge = maxUSDCBorrow;
-        } else {
-            TransferHelper.safeTransferFrom(address(usdc), msg.sender, address(this), collateralAmount);
-
-            amountToBridge = collateralAmount;
         }
+
         TransferHelper.safeApprove(address(usdc), address(tokenMessenger), amountToBridge);
 
         tokenMessenger.depositForBurn(
