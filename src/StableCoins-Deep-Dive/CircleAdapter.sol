@@ -109,54 +109,49 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
         uint32 destinationDomain,
         bytes32 mintRecipient
     ) external override nonReentrant {
-        if (collateralAsset == address(usdc)) {
+        uint256 amountToBridge;
+        uint256 currentHealthFactor = type(uint256).max; // Default for USDC (no borrow)
+
+        if (collateralAsset != address(usdc)) {
+            TransferHelper.safeTransferFrom(collateralAsset, msg.sender, address(this), collateralAmount);
+            TransferHelper.safeApprove(collateralAsset, address(aavePool), collateralAmount);
+
+            // Supply to Aave on behalf of the USER (they own the position)
+            aavePool.supply(collateralAsset, collateralAmount, msg.sender, REFERRAL_CODE);
+
+            (,, uint256 availableBorrowsBase,,,) = aavePool.getUserAccountData(msg.sender);
+            uint256 maxUSDCBorrow = availableBorrowsBase / 100;
+            
+            if (maxUSDCBorrow == 0) {
+                revert NoBorrowingPower();
+            }
+
+            uint256 delegatedAmount = variableDebtUsdc.borrowAllowance(msg.sender, address(this));
+            if (delegatedAmount < maxUSDCBorrow) {
+                revert InsufficientDelegation(delegatedAmount, maxUSDCBorrow);
+            }
+
+            // Borrow USDC on behalf of user
+            aavePool.borrow(address(usdc), maxUSDCBorrow, INTEREST_RATE_MODE, REFERRAL_CODE, msg.sender);
+
+            (,,,,, currentHealthFactor) = aavePool.getUserAccountData(msg.sender);
+
+            amountToBridge = maxUSDCBorrow;
+        } else {
             TransferHelper.safeTransferFrom(address(usdc), msg.sender, address(this), collateralAmount);
-            TransferHelper.safeApprove(address(usdc), address(tokenMessenger), collateralAmount);
 
-            tokenMessenger.depositForBurn(
-                collateralAmount,
-                destinationDomain,
-                mintRecipient,
-                address(usdc)
-            );
-
-            emit CrossChainTransferInitiated(msg.sender, collateralAmount, type(uint256).max, destinationDomain);
-            return;
+            amountToBridge = collateralAmount;
         }
+        TransferHelper.safeApprove(address(usdc), address(tokenMessenger), amountToBridge);
 
-        TransferHelper.safeTransferFrom(collateralAsset, msg.sender, address(this), collateralAmount);
-        TransferHelper.safeApprove(collateralAsset, address(aavePool), collateralAmount);
-
-        // Supply to Aave on behalf of the USER (they own the position)
-        aavePool.supply(collateralAsset, collateralAmount, msg.sender, REFERRAL_CODE);
-
-        (,, uint256 availableBorrowsBase,,,) = aavePool.getUserAccountData(msg.sender);
-        uint256 maxUSDCBorrow = availableBorrowsBase / 100;
-        
-        if (maxUSDCBorrow == 0) {
-            revert NoBorrowingPower();
-        }
-
-        uint256 delegatedAmount = variableDebtUsdc.borrowAllowance(msg.sender, address(this));
-        if (delegatedAmount < maxUSDCBorrow) {
-            revert InsufficientDelegation(delegatedAmount, maxUSDCBorrow);
-        }
-
-        // Borrow USDC on behalf of user
-        aavePool.borrow(address(usdc), maxUSDCBorrow, INTEREST_RATE_MODE, REFERRAL_CODE, msg.sender);
-
-        (,,,,, uint256 currentHealthFactor) = aavePool.getUserAccountData(msg.sender);
-
-        TransferHelper.safeApprove(address(usdc), address(tokenMessenger), maxUSDCBorrow);
-        
         tokenMessenger.depositForBurn(
-            maxUSDCBorrow,
+            amountToBridge,
             destinationDomain,
             mintRecipient,
             address(usdc)
         );
 
-        emit CrossChainTransferInitiated(msg.sender, maxUSDCBorrow, currentHealthFactor, destinationDomain);
+        emit CrossChainTransferInitiated(msg.sender, amountToBridge, currentHealthFactor, destinationDomain);
     }
 
     /**
