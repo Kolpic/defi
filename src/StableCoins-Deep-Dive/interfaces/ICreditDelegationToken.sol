@@ -26,4 +26,3 @@ interface ICreditDelegationToken {
      */
     function balanceOf(address user) external view returns (uint256);
 }
-

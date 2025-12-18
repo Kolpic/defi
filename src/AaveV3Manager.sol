@@ -38,7 +38,7 @@ contract AaveV3Manager is ReentrancyGuard {
 
     uint256 public constant MINIMUM_HEALTH_FACTOR = 1.1e18;
     uint256 public constant DEAD_SHARES = 1e3; // 1000 wei
-    
+
     // Operation types for health factor calculation
     uint256 public constant OPERATION_NONE = 0;
     uint256 public constant OPERATION_DEPOSIT = 1;
@@ -56,7 +56,7 @@ contract AaveV3Manager is ReentrancyGuard {
     function _initializeAssetConfigs() private {
         // Register common assets with their LTV ratios
         _registerAsset(WETH, 8000, "WETH"); // 80%
-        _registerAsset(DAI, 7500, "DAI");   // 75%
+        _registerAsset(DAI, 7500, "DAI"); // 75%
         _registerAsset(USDC, 8000, "USDC"); // 80%
         _registerAsset(USDT, 7500, "USDT"); // 75%
     }
@@ -68,11 +68,7 @@ contract AaveV3Manager is ReentrancyGuard {
      * @param _symbol The asset symbol
      */
     function _registerAsset(address _asset, uint256 _ltv, string memory _symbol) private {
-        assetConfigs[_asset] = AssetConfig({
-            ltv: _ltv,
-            isActive: true,
-            symbol: _symbol
-        });
+        assetConfigs[_asset] = AssetConfig({ltv: _ltv, isActive: true, symbol: _symbol});
         emit AssetRegistered(_asset, _ltv, _symbol);
     }
 
@@ -138,7 +134,7 @@ contract AaveV3Manager is ReentrancyGuard {
 
         // Approve the Aave pool to spend the asset
         IERC20(_asset).approve(address(pool), _amount);
-        
+
         // Supply the asset to Aave
         pool.supply(_asset, _amount, address(this), 0);
 
@@ -196,7 +192,8 @@ contract AaveV3Manager is ReentrancyGuard {
         require(isAssetActive(_asset), "Asset not supported");
 
         // Check health factor after borrowing (simulate the borrow)
-        uint256 userHealthFactor = calculateHealthFactor(msg.sender, _asset, _amount, OPERATION_BORROW, _interestRateMode);
+        uint256 userHealthFactor =
+            calculateHealthFactor(msg.sender, _asset, _amount, OPERATION_BORROW, _interestRateMode);
         require(userHealthFactor > MINIMUM_HEALTH_FACTOR, "User health factor too low after borrowing");
 
         pool.borrow(_asset, _amount, _interestRateMode, 0, address(this));
@@ -224,7 +221,8 @@ contract AaveV3Manager is ReentrancyGuard {
         require(_amount <= userOwed, "Amount to repay exceeds debt");
 
         // Check health factor after repayment (should improve health factor)
-        uint256 userHealthFactor = calculateHealthFactor(msg.sender, _asset, _amount, OPERATION_REPAY, _interestRateMode);
+        uint256 userHealthFactor =
+            calculateHealthFactor(msg.sender, _asset, _amount, OPERATION_REPAY, _interestRateMode);
         require(userHealthFactor > MINIMUM_HEALTH_FACTOR, "Repayment would result in health factor too low");
 
         uint256 userPrincipal = s_userBorrowedPrincipal[_asset][msg.sender];
@@ -251,7 +249,7 @@ contract AaveV3Manager is ReentrancyGuard {
         if (totalShares == 0) {
             return 0;
         }
-        
+
         uint256 userShares = s_userShares[_asset][_user];
         uint256 totalAssets = _getTotalAssetsInPool(_asset);
         return (userShares * totalAssets) / totalShares;
@@ -302,13 +300,13 @@ contract AaveV3Manager is ReentrancyGuard {
         uint256 totalBorrowedValue = 0;
 
         address[] memory registeredAssets = getRegisteredAssets();
-        
+
         for (uint256 i = 0; i < registeredAssets.length; i++) {
             address asset = registeredAssets[i];
-            
+
             // Calculate collateral amount (deposits)
             uint256 collateralAmount = balanceOf(asset, _user);
-            
+
             // Adjust collateral based on operation
             if (_operationType == OPERATION_DEPOSIT && asset == _operationAsset) {
                 // Deposit operation - add to collateral
@@ -317,22 +315,22 @@ contract AaveV3Manager is ReentrancyGuard {
                 // Withdraw operation - subtract from collateral
                 collateralAmount = collateralAmount > _operationAmount ? collateralAmount - _operationAmount : 0;
             }
-            
+
             if (collateralAmount > 0) {
                 uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
-                
+
                 // Get liquidation threshold from Aave pool
                 IPool.ReserveData memory reserveData = pool.getReserveData(asset);
                 uint256 liquidationThreshold = _getLiquidationThreshold(reserveData.configuration);
-                
+
                 // liquidationThreshold is in basis points (e.g., 8250 = 82.5%)
                 uint256 collateralValue = (collateralAmount * assetPrice * liquidationThreshold) / (1e26 * 10000);
                 totalCollateralValue += collateralValue;
             }
-            
+
             // Calculate borrowed amount (debts)
             uint256 borrowedAmount = debtOf(asset, _user);
-            
+
             // Adjust debt based on operation
             if (_operationType == OPERATION_BORROW && asset == _operationAsset) {
                 // For borrow operations, add the borrowed amount
@@ -343,7 +341,7 @@ contract AaveV3Manager is ReentrancyGuard {
                     borrowedAmount -= _operationAmount;
                 }
             }
-            
+
             if (borrowedAmount > 0) {
                 uint256 assetPrice = AAVE_ORACLE.getAssetPrice(asset);
                 uint256 borrowedValue = (borrowedAmount * assetPrice) / 1e26;

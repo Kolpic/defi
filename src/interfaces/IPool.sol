@@ -24,28 +24,13 @@ interface IPool {
         uint128 isolationModeTotalDebt;
     }
 
-    function supply(
-        address asset,
-        uint256 amount,
-        address onBehalfOf,
-        uint16 referralCode
-    ) external;
-    function withdraw(address asset, uint256 amount, address to)
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+    function withdraw(address asset, uint256 amount, address to) external returns (uint256 withdrawn);
+    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)
+        external;
+    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf)
         external
-        returns (uint256 withdrawn);
-    function borrow(
-        address asset,
-        uint256 amount,
-        uint256 interestRateMode,
-        uint16 referralCode,
-        address onBehalfOf
-    ) external;
-    function repay(
-        address asset,
-        uint256 amount,
-        uint256 interestRateMode,
-        address onBehalfOf
-    ) external returns (uint256 repaid);
+        returns (uint256 repaid);
     function liquidationCall(
         address collateralAsset,
         address debtAsset,
@@ -71,8 +56,5 @@ interface IPool {
             uint256 ltv,
             uint256 healthFactor
         );
-    function getReserveData(address asset)
-        external
-        view
-        returns (ReserveData memory);
+    function getReserveData(address asset) external view returns (ReserveData memory);
 }

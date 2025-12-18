@@ -14,7 +14,7 @@ import {ICreditDelegationToken} from "./interfaces/ICreditDelegationToken.sol";
  * @title CircleAdapter
  * @notice Enables fast cross-chain transfers using Aave V3 and Circle CCTP
  * @dev Uses Credit Delegation so each user maintains their own isolated Aave position
- * 
+ *
  * Flow:
  * 1. User supplies collateral directly to Aave (their own position)
  * 2. User delegates USDC borrowing power to this contract via `approveDelegation`
@@ -28,18 +28,16 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
     ITokenMessenger public immutable tokenMessenger;
     IERC20 public immutable usdc;
     ICreditDelegationToken public immutable variableDebtUsdc;
-    
+
     uint256 constant INTEREST_RATE_MODE = 2; // Variable rate
     uint16 constant REFERRAL_CODE = 0;
 
     // --- Constructor ---
-    constructor(
-        address _aavePool, 
-        address _tokenMessenger, 
-        address _usdc,
-        address _variableDebtUsdc
-    ) {
-        if (_aavePool == address(0) || _tokenMessenger == address(0) || _usdc == address(0) || _variableDebtUsdc == address(0)) {
+    constructor(address _aavePool, address _tokenMessenger, address _usdc, address _variableDebtUsdc) {
+        if (
+            _aavePool == address(0) || _tokenMessenger == address(0) || _usdc == address(0)
+                || _variableDebtUsdc == address(0)
+        ) {
             revert ZeroAddress();
         }
         aavePool = IPool(_aavePool);
@@ -57,11 +55,11 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
      * @param destinationDomain Circle's domain ID for the target chain (0=Eth, 1=Avax, 2=OP, 3=Arb, 6=Base, 7=Polygon)
      * @param mintRecipient The recipient address on destination chain (bytes32 format)
      */
-    function executeFastCrossChainTransfer(
-        uint256 borrowAmount,
-        uint32 destinationDomain,
-        bytes32 mintRecipient
-    ) external override nonReentrant {
+    function executeFastCrossChainTransfer(uint256 borrowAmount, uint32 destinationDomain, bytes32 mintRecipient)
+        external
+        override
+        nonReentrant
+    {
         if (borrowAmount == 0) {
             revert ZeroBorrowAmount();
         }
@@ -73,7 +71,7 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
 
         (,, uint256 availableBorrowsBase,,,) = aavePool.getUserAccountData(msg.sender);
         uint256 maxUSDCBorrow = availableBorrowsBase / 100; // Base (8 decimals) -> USDC (6 decimals)
-        
+
         if (maxUSDCBorrow < borrowAmount) {
             revert NoBorrowingPower();
         }
@@ -83,13 +81,8 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
         (,,,,, uint256 currentHealthFactor) = aavePool.getUserAccountData(msg.sender);
 
         TransferHelper.safeApprove(address(usdc), address(tokenMessenger), borrowAmount);
-        
-        tokenMessenger.depositForBurn(
-            borrowAmount,
-            destinationDomain,
-            mintRecipient,
-            address(usdc)
-        );
+
+        tokenMessenger.depositForBurn(borrowAmount, destinationDomain, mintRecipient, address(usdc));
 
         emit CrossChainTransferInitiated(msg.sender, borrowAmount, currentHealthFactor, destinationDomain);
     }
@@ -122,7 +115,7 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
 
             (,, uint256 availableBorrowsBase,,,) = aavePool.getUserAccountData(msg.sender);
             uint256 maxUSDCBorrow = availableBorrowsBase / 100;
-            
+
             if (maxUSDCBorrow == 0) {
                 revert NoBorrowingPower();
             }
@@ -142,12 +135,7 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
 
         TransferHelper.safeApprove(address(usdc), address(tokenMessenger), amountToBridge);
 
-        tokenMessenger.depositForBurn(
-            amountToBridge,
-            destinationDomain,
-            mintRecipient,
-            address(usdc)
-        );
+        tokenMessenger.depositForBurn(amountToBridge, destinationDomain, mintRecipient, address(usdc));
 
         emit CrossChainTransferInitiated(msg.sender, amountToBridge, currentHealthFactor, destinationDomain);
     }
@@ -158,20 +146,15 @@ contract CircleAdapter is ICircleAdapter, ReentrancyGuard {
      * @param destinationDomain Circle's domain ID for the target chain
      * @param mintRecipient The recipient address on destination chain (bytes32 format)
      */
-    function bridgeUsdc(
-        uint256 amount,
-        uint32 destinationDomain,
-        bytes32 mintRecipient
-    ) external override nonReentrant {
+    function bridgeUsdc(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient)
+        external
+        override
+        nonReentrant
+    {
         TransferHelper.safeTransferFrom(address(usdc), msg.sender, address(this), amount);
         TransferHelper.safeApprove(address(usdc), address(tokenMessenger), amount);
-        
-        tokenMessenger.depositForBurn(
-            amount,
-            destinationDomain,
-            mintRecipient,
-            address(usdc)
-        );
+
+        tokenMessenger.depositForBurn(amount, destinationDomain, mintRecipient, address(usdc));
 
         emit CrossChainTransferInitiated(msg.sender, amount, type(uint256).max, destinationDomain);
     }

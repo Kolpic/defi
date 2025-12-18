@@ -13,6 +13,7 @@ import "../../src/StableCoins-Deep-Dive/interfaces/ICreditDelegationToken.sol";
 // Mock ERC20 Token
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
@@ -22,31 +23,31 @@ contract MockERC20 is ERC20 {
 contract MockPool is IPool {
     mapping(address => uint256) public userCollateral;
     mapping(address => uint256) public userDebt;
-    
+
     uint256 public mockAvailableBorrowsBase;
 
     function setMockAvailableBorrowsBase(uint256 amount) external {
         mockAvailableBorrowsBase = amount;
     }
 
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 /*referralCode*/) external {
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16 /*referralCode*/ ) external {
         userCollateral[onBehalfOf] += amount;
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
     }
 
-    function borrow(address asset, uint256 amount, uint256 /*mode*/, uint16 /*code*/, address onBehalfOf) external {
+    function borrow(address asset, uint256 amount, uint256, /*mode*/ uint16, /*code*/ address onBehalfOf) external {
         // In Aave V3, debt is assigned to 'onBehalfOf', but funds go to 'msg.sender'
         userDebt[onBehalfOf] += amount;
         MockERC20(asset).mint(msg.sender, amount);
     }
 
-    function repay(address asset, uint256 amount, uint256 /*mode*/, address onBehalfOf) external returns (uint256) {
+    function repay(address asset, uint256 amount, uint256, /*mode*/ address onBehalfOf) external returns (uint256) {
         uint256 debt = userDebt[onBehalfOf];
         uint256 repayAmount = amount > debt ? debt : amount;
-        
+
         userDebt[onBehalfOf] -= repayAmount;
         IERC20(asset).transferFrom(msg.sender, address(this), repayAmount);
-        
+
         return repayAmount;
     }
 
@@ -54,22 +55,26 @@ contract MockPool is IPool {
         return amount;
     }
 
-    function getUserAccountData(address user) external view returns (
-        uint256 totalCollateralBase,
-        uint256 totalDebtBase,
-        uint256 availableBorrowsBase,
-        uint256 currentLiquidationThreshold,
-        uint256 ltv,
-        uint256 healthFactor
-    ) {
+    function getUserAccountData(address user)
+        external
+        view
+        returns (
+            uint256 totalCollateralBase,
+            uint256 totalDebtBase,
+            uint256 availableBorrowsBase,
+            uint256 currentLiquidationThreshold,
+            uint256 ltv,
+            uint256 healthFactor
+        )
+    {
         return (
-            userCollateral[user], 
-            userDebt[user],       // Return actual debt
-            mockAvailableBorrowsBase, 
-            0, 
-            0, 
+            userCollateral[user],
+            userDebt[user], // Return actual debt
+            mockAvailableBorrowsBase,
+            0,
+            0,
             1.5e18
-        ); 
+        );
     }
 }
 
@@ -77,12 +82,10 @@ contract MockPool is IPool {
 contract MockTokenMessenger is ITokenMessenger {
     event MessageSent(uint256 amount);
 
-    function depositForBurn(
-        uint256 amount,
-        uint32 /*destinationDomain*/,
-        bytes32 /*mintRecipient*/,
-        address burnToken
-    ) external returns (uint64 _nonce) {
+    function depositForBurn(uint256 amount, uint32, /*destinationDomain*/ bytes32, /*mintRecipient*/ address burnToken)
+        external
+        returns (uint64 _nonce)
+    {
         IERC20(burnToken).transferFrom(msg.sender, address(this), amount);
         emit MessageSent(amount);
         return 1;
@@ -111,7 +114,6 @@ contract MockDebtToken is ICreditDelegationToken {
     }
 }
 
-
 // --- Main Test Contract ---
 
 contract CircleAdapterTest is Test {
@@ -123,14 +125,11 @@ contract CircleAdapterTest is Test {
     MockDebtToken debtToken;
 
     address user = address(0x1);
-    uint32 destinationDomain = 6; 
+    uint32 destinationDomain = 6;
     bytes32 mintRecipient = bytes32(uint256(uint160(user)));
 
     event CrossChainTransferInitiated(
-        address indexed user,
-        uint256 amount,
-        uint256 healthFactor,
-        uint32 destinationDomain
+        address indexed user, uint256 amount, uint256 healthFactor, uint32 destinationDomain
     );
     event LoanRepaid(address indexed payer, address indexed onBehalfOf, uint256 amount);
 
@@ -141,12 +140,7 @@ contract CircleAdapterTest is Test {
         weth = new MockERC20("WETH", "WETH");
         debtToken = new MockDebtToken(address(pool));
 
-        adapter = new CircleAdapter(
-            address(pool),
-            address(messenger),
-            address(usdc),
-            address(debtToken)
-        );
+        adapter = new CircleAdapter(address(pool), address(messenger), address(usdc), address(debtToken));
 
         vm.label(user, "User");
         usdc.mint(user, 10_000e6);
@@ -158,25 +152,20 @@ contract CircleAdapterTest is Test {
         uint256 bridgeAmount = 100e6;
         vm.startPrank(user);
         usdc.approve(address(adapter), bridgeAmount);
-        
+
         vm.expectEmit(true, false, false, true);
         emit CrossChainTransferInitiated(user, bridgeAmount, type(uint256).max, destinationDomain);
 
-        adapter.supplyAndTransfer(
-            address(usdc),
-            bridgeAmount,
-            destinationDomain,
-            mintRecipient
-        );
+        adapter.supplyAndTransfer(address(usdc), bridgeAmount, destinationDomain, mintRecipient);
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(address(messenger)), bridgeAmount);
     }
 
     function test_SupplyAndTransfer_WETH_Success() public {
-        uint256 collateralAmount = 1e18; 
+        uint256 collateralAmount = 1e18;
         // Logic: 2000e8 / 100 = 20e6 USDC
-        pool.setMockAvailableBorrowsBase(2000e6); 
+        pool.setMockAvailableBorrowsBase(2000e6);
 
         vm.startPrank(user);
         weth.approve(address(adapter), collateralAmount);
@@ -185,12 +174,7 @@ contract CircleAdapterTest is Test {
         vm.expectEmit(true, false, false, true);
         emit CrossChainTransferInitiated(user, 20e6, 1.5e18, destinationDomain);
 
-        adapter.supplyAndTransfer(
-            address(weth),
-            collateralAmount,
-            destinationDomain,
-            mintRecipient
-        );
+        adapter.supplyAndTransfer(address(weth), collateralAmount, destinationDomain, mintRecipient);
         vm.stopPrank();
 
         assertEq(pool.userCollateral(user), collateralAmount, "User should have supplied collateral");
@@ -200,16 +184,10 @@ contract CircleAdapterTest is Test {
 
     function test_Fail_InsufficientDelegation() public {
         uint256 borrowAmount = 100e6;
-        pool.setMockAvailableBorrowsBase(1_000_000e8); 
+        pool.setMockAvailableBorrowsBase(1_000_000e8);
 
         vm.startPrank(user);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ICircleAdapter.InsufficientDelegation.selector, 
-                0, 
-                borrowAmount
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ICircleAdapter.InsufficientDelegation.selector, 0, borrowAmount));
 
         adapter.executeFastCrossChainTransfer(borrowAmount, destinationDomain, mintRecipient);
         vm.stopPrank();
@@ -217,7 +195,7 @@ contract CircleAdapterTest is Test {
 
     function test_Fail_NoBorrowingPower() public {
         uint256 borrowAmount = 100e6;
-        
+
         vm.startPrank(user);
         debtToken.approveDelegation(address(adapter), borrowAmount);
         pool.setMockAvailableBorrowsBase(0);
@@ -229,10 +207,10 @@ contract CircleAdapterTest is Test {
 
     function test_Repay_MaxAmount() public {
         uint256 debtAmount = 500e6;
-        
+
         // Ensure pool.userDebt(user) will reflect this borrow
-        vm.prank(address(adapter)); 
-        pool.borrow(address(usdc), debtAmount, 2, 0, user); 
+        vm.prank(address(adapter));
+        pool.borrow(address(usdc), debtAmount, 2, 0, user);
 
         usdc.mint(user, debtAmount);
         vm.startPrank(user);
@@ -242,7 +220,7 @@ contract CircleAdapterTest is Test {
         emit LoanRepaid(user, user, debtAmount);
 
         adapter.repay(user, type(uint256).max);
-        
+
         vm.stopPrank();
 
         assertEq(pool.userDebt(user), 0, "Debt should be fully repaid");
@@ -255,7 +233,7 @@ contract CircleAdapterTest is Test {
 
     function test_ExecuteFastCrossChainTransfer_Success() public {
         uint256 borrowAmount = 50e6;
-        pool.setMockAvailableBorrowsBase(5000e8); 
+        pool.setMockAvailableBorrowsBase(5000e8);
 
         vm.startPrank(user);
         debtToken.approveDelegation(address(adapter), borrowAmount);
@@ -278,9 +256,9 @@ contract CircleAdapterTest is Test {
         pool.setMockAvailableBorrowsBase(0);
         vm.startPrank(user);
         weth.approve(address(adapter), 1e18);
-        
+
         vm.expectRevert(ICircleAdapter.NoBorrowingPower.selector);
-        
+
         adapter.supplyAndTransfer(address(weth), 1e18, destinationDomain, mintRecipient);
         vm.stopPrank();
     }
@@ -289,22 +267,16 @@ contract CircleAdapterTest is Test {
         // We want to verify error is thrown for 50 USDC (50e6)
         // So we set borrow power to exactly match 50 USDC.
         // Formula: 50e8 (Base) / 100 = 50e6 (USDC)
-        uint256 borrowPowerBase = 50e8; 
+        uint256 borrowPowerBase = 50e8;
         uint256 maxUSDC = 50e6;
-        
+
         pool.setMockAvailableBorrowsBase(borrowPowerBase);
 
         vm.startPrank(user);
         weth.approve(address(adapter), 1e18);
-        
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ICircleAdapter.InsufficientDelegation.selector, 
-                0, 
-                maxUSDC
-            )
-        );
-        
+
+        vm.expectRevert(abi.encodeWithSelector(ICircleAdapter.InsufficientDelegation.selector, 0, maxUSDC));
+
         adapter.supplyAndTransfer(address(weth), 1e18, destinationDomain, mintRecipient);
         vm.stopPrank();
     }
@@ -325,12 +297,12 @@ contract CircleAdapterTest is Test {
 
     function test_ViewFunctions() public {
         address testUser = address(0x99);
-        
+
         // Setup Debt
         uint256 debtAmount = 123e6;
-        vm.prank(address(adapter)); 
-        pool.borrow(address(usdc), debtAmount, 2, 0, testUser); 
-        
+        vm.prank(address(adapter));
+        pool.borrow(address(usdc), debtAmount, 2, 0, testUser);
+
         // This should now pass because MockPool returns real debt
         assertEq(adapter.getBorrowBalance(testUser), debtAmount);
 
@@ -341,7 +313,7 @@ contract CircleAdapterTest is Test {
         uint256 delegation = 1000e6;
         vm.prank(testUser);
         debtToken.approveDelegation(address(adapter), delegation);
-        
+
         assertEq(adapter.getDelegatedAmount(testUser), delegation);
     }
 }

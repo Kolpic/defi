@@ -6,17 +6,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 
 interface ITWAPPriceProvider {
-    function getQuote(
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn
-    ) external view returns (uint256 amountOut);
+    function getQuote(address tokenIn, address tokenOut, uint256 amountIn) external view returns (uint256 amountOut);
 
-    function getAmountInForExactOut(
-        address tokenIn,
-        address tokenOut,
-        uint256 amountOut
-    ) external view returns (uint256 amountIn);
+    function getAmountInForExactOut(address tokenIn, address tokenOut, uint256 amountOut)
+        external
+        view
+        returns (uint256 amountIn);
 }
 
 contract UniswapV3Swapper {
@@ -34,12 +29,7 @@ contract UniswapV3Swapper {
     // Store contract owner to manage settings
     address public owner;
 
-    event Swapped (
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 amountOut
-    );
+    event Swapped(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut);
 
     constructor(address _router, address _priceProvider) {
         swapRouter = ISwapRouter(_router);
@@ -48,11 +38,10 @@ contract UniswapV3Swapper {
         slippageTolerance = 50; // 0.5%
     }
 
-    function swapExactInput (
-        address[] calldata path,
-        uint24[] calldata fees,
-        uint256 amountIn
-    ) external returns (uint256 amountOut) {
+    function swapExactInput(address[] calldata path, uint24[] calldata fees, uint256 amountIn)
+        external
+        returns (uint256 amountOut)
+    {
         require(path.length - 1 == fees.length, "Invalid path/fees");
         require(path.length > 1, "Invalid path length");
         require(amountIn > 0, "Amount must be greater than 0");
@@ -70,20 +59,12 @@ contract UniswapV3Swapper {
         uint256 expectedAmountOut;
         if (path.length == 2) {
             // Single hop: direct quote
-            expectedAmountOut = priceProvider.getQuote(
-                path[0],
-                path[1],
-                amountIn
-            );
+            expectedAmountOut = priceProvider.getQuote(path[0], path[1], amountIn);
         } else {
             // Multi-hop: calculate through each hop
             uint256 currentAmount = amountIn;
-            for (uint i = 0; i < path.length - 1; i++) {
-                currentAmount = priceProvider.getQuote(
-                    path[i],
-                    path[i + 1],
-                    currentAmount
-                );
+            for (uint256 i = 0; i < path.length - 1; i++) {
+                currentAmount = priceProvider.getQuote(path[i], path[i + 1], currentAmount);
             }
             expectedAmountOut = currentAmount;
         }
@@ -106,36 +87,27 @@ contract UniswapV3Swapper {
         emit Swapped(path[0], path[path.length - 1], amountIn, amountOut);
     }
 
-    function swapExactOutput(
-        address[] calldata path,
-        uint24[] calldata fees,
-        uint256 amountOut
-    ) external returns (uint256 amountIn){
+    function swapExactOutput(address[] calldata path, uint24[] calldata fees, uint256 amountOut)
+        external
+        returns (uint256 amountIn)
+    {
         require(path.length - 1 == fees.length, "Invalid path/fees");
         require(path.length > 1, "Invalid path length");
         require(amountOut > 0, "Amount must be greater than 0");
 
         // encode the path for multi-hop swap
-        bytes memory encodedPath = _encodePath(path,fees);
+        bytes memory encodedPath = _encodePath(path, fees);
 
         // Calculate expected input amount
         uint256 expectedAmountIn;
         if (path.length == 2) {
             // Single hop: direct quote
-            expectedAmountIn = priceProvider.getAmountInForExactOut(
-                path[0],
-                path[1],
-                amountOut
-            );
+            expectedAmountIn = priceProvider.getAmountInForExactOut(path[0], path[1], amountOut);
         } else {
             // Multi-hop: calculate backwards through each hop
             uint256 currentAmount = amountOut;
-            for (uint i = path.length - 1; i > 0; i--) {
-                currentAmount = priceProvider.getAmountInForExactOut(
-                    path[i - 1],
-                    path[i],
-                    currentAmount
-                );
+            for (uint256 i = path.length - 1; i > 0; i--) {
+                currentAmount = priceProvider.getAmountInForExactOut(path[i - 1], path[i], currentAmount);
             }
             expectedAmountIn = currentAmount;
         }
@@ -150,15 +122,14 @@ contract UniswapV3Swapper {
         IERC20(path[0]).forceApprove(address(swapRouter), amountInMaximum);
 
         // Prepare the parameters for the swap
-        ISwapRouter.ExactOutputParams memory params = ISwapRouter
-            .ExactOutputParams({
-                path: encodedPath,
-                recipient: msg.sender,
-                deadline: block.timestamp + 300, // 5 minutes deadline
-                amountOut: amountOut,
-                amountInMaximum: amountInMaximum
-            });
-            
+        ISwapRouter.ExactOutputParams memory params = ISwapRouter.ExactOutputParams({
+            path: encodedPath,
+            recipient: msg.sender,
+            deadline: block.timestamp + 300, // 5 minutes deadline
+            amountOut: amountOut,
+            amountInMaximum: amountInMaximum
+        });
+
         // execute the swap
         amountIn = swapRouter.exactOutput(params);
 
@@ -167,7 +138,7 @@ contract UniswapV3Swapper {
             IERC20(path[0]).safeTransfer(msg.sender, amountInMaximum - amountIn);
         }
 
-        emit Swapped(path[0], path[path.length -1], amountIn, amountOut);
+        emit Swapped(path[0], path[path.length - 1], amountIn, amountOut);
     }
 
     function setSlippage(uint256 _newSlippageTolerance) external {
@@ -175,17 +146,10 @@ contract UniswapV3Swapper {
         slippageTolerance = _newSlippageTolerance;
     }
 
-    function _encodePath(
-        address[] calldata path,
-        uint24[] calldata fees
-    ) private pure returns (bytes memory) {
+    function _encodePath(address[] calldata path, uint24[] calldata fees) private pure returns (bytes memory) {
         bytes memory encodedPath = abi.encodePacked(path[0]);
-        for (uint i = 0; i < fees.length; i++) {
-            encodedPath = abi.encodePacked(
-                encodedPath,
-                fees[i],
-                path[i + 1]
-            );
+        for (uint256 i = 0; i < fees.length; i++) {
+            encodedPath = abi.encodePacked(encodedPath, fees[i], path[i + 1]);
         }
         return encodedPath;
     }
@@ -193,4 +157,4 @@ contract UniswapV3Swapper {
     function _calculateSlippage(uint256 amount) private view returns (uint256) {
         return (amount * slippageTolerance) / 10000;
     }
-} 
+}

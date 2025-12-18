@@ -20,7 +20,8 @@ interface IPool {
      * @param referralCode Code used to register the integrator (0 if none)
      * @param onBehalfOf The address that will receive the debt. Must have delegated credit if != msg.sender
      */
-    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
+    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)
+        external;
 
     /**
      * @notice Repays a borrowed `amount` on a specific reserve, burning the equivalent debt tokens.
@@ -30,7 +31,9 @@ interface IPool {
      * @param onBehalfOf The address of the user who will get their debt reduced
      * @return The final amount repaid
      */
-    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
+    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf)
+        external
+        returns (uint256);
 
     /**
      * @notice Withdraws an `amount` of underlying asset from the reserve, burning the equivalent aTokens.
@@ -51,12 +54,15 @@ interface IPool {
      * @return ltv The loan to value
      * @return healthFactor The current health factor
      */
-    function getUserAccountData(address user) external view returns (
-        uint256 totalCollateralBase,
-        uint256 totalDebtBase,
-        uint256 availableBorrowsBase,
-        uint256 currentLiquidationThreshold,
-        uint256 ltv,
-        uint256 healthFactor
-    );
+    function getUserAccountData(address user)
+        external
+        view
+        returns (
+            uint256 totalCollateralBase,
+            uint256 totalDebtBase,
+            uint256 availableBorrowsBase,
+            uint256 currentLiquidationThreshold,
+            uint256 ltv,
+            uint256 healthFactor
+        );
 }
