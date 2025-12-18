@@ -30,18 +30,44 @@ contract MockPool is IPool {
         mockAvailableBorrowsBase = amount;
     }
 
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 /*referralCode*/ ) external {
+    function supply(
+        address asset,
+        uint256 amount,
+        address onBehalfOf,
+        uint16 /*referralCode*/
+    )
+        external
+    {
         userCollateral[onBehalfOf] += amount;
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
     }
 
-    function borrow(address asset, uint256 amount, uint256, /*mode*/ uint16, /*code*/ address onBehalfOf) external {
+    function borrow(
+        address asset,
+        uint256 amount,
+        uint256,
+        /*mode*/
+        uint16,
+        /*code*/
+        address onBehalfOf
+    )
+        external
+    {
         // In Aave V3, debt is assigned to 'onBehalfOf', but funds go to 'msg.sender'
         userDebt[onBehalfOf] += amount;
         MockERC20(asset).mint(msg.sender, amount);
     }
 
-    function repay(address asset, uint256 amount, uint256, /*mode*/ address onBehalfOf) external returns (uint256) {
+    function repay(
+        address asset,
+        uint256 amount,
+        uint256,
+        /*mode*/
+        address onBehalfOf
+    )
+        external
+        returns (uint256)
+    {
         uint256 debt = userDebt[onBehalfOf];
         uint256 repayAmount = amount > debt ? debt : amount;
 
@@ -82,7 +108,14 @@ contract MockPool is IPool {
 contract MockTokenMessenger is ITokenMessenger {
     event MessageSent(uint256 amount);
 
-    function depositForBurn(uint256 amount, uint32, /*destinationDomain*/ bytes32, /*mintRecipient*/ address burnToken)
+    function depositForBurn(
+        uint256 amount,
+        uint32,
+        /*destinationDomain*/
+        bytes32,
+        /*mintRecipient*/
+        address burnToken
+    )
         external
         returns (uint64 _nonce)
     {
