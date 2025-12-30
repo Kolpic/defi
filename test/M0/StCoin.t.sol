@@ -68,7 +68,6 @@ contract StableCoinMockTest is Test {
     }
 
     function test_DifferentialFeesWithMockedYield() public {
-        // Setup Clients AND the Earner contract itself
         vm.startPrank(earnerManager);
         stableCoin.setAccountInfo(address(stableCoin), true, 0);
         stableCoin.setAccountInfo(clientA, true, 500); // 5%
@@ -89,7 +88,6 @@ contract StableCoinMockTest is Test {
         // Simulate Yield by increasing the Index
         mockM.setCurrentIndex(1.1e12); // 10% increase
 
-        // Validate yields and differential fees
         (uint256 yieldA, uint256 feeA,) = stableCoin.accruedYieldAndFeeOf(clientA);
         (uint256 yieldB, uint256 feeB,) = stableCoin.accruedYieldAndFeeOf(clientB);
 
@@ -142,11 +140,10 @@ contract StableCoinMockTest is Test {
     }
 
     function test_VerifyDynamicYieldCalculation() public {
-        // Setup users with different fees
         vm.startPrank(earnerManager);
         stableCoin.setAccountInfo(address(stableCoin), true, 0);
-        stableCoin.setAccountInfo(clientA, true, 500); // 5% fee [cite: 46]
-        stableCoin.setAccountInfo(clientB, true, 2000); // 20% fee [cite: 46]
+        stableCoin.setAccountInfo(clientA, true, 500); // 5% fee
+        stableCoin.setAccountInfo(clientB, true, 2000); // 20% fee
         stableCoin.enableEarning();
         vm.stopPrank();
 
@@ -161,20 +158,18 @@ contract StableCoinMockTest is Test {
         // Change the Index (Market grows by 10%)
         mockM.setCurrentIndex(1.1e12);
 
-        // Verify calculation without changing state
         // The rewards are calculated now, even though they aren't 'stored' yet
         (uint256 grossA, uint256 feeA, uint256 netA) = stableCoin.accruedYieldAndFeeOf(clientA);
         (uint256 grossB, uint256 feeB, uint256 netB) = stableCoin.accruedYieldAndFeeOf(clientB);
 
-        // Client A: 100k gross - 5k fee = 95k net [cite: 52]
+        // Client A: 100k gross - 5k fee = 95k net
         assertEq(netA, 95_000 * 1e18);
-        // Client B: 100k gross - 20k fee = 80k net [cite: 53]
+        // Client B: 100k gross - 20k fee = 80k net
         assertEq(netB, 80_000 * 1e18);
 
         console.log("Calculated Net Yield A:", netA);
         console.log("Calculated Net Yield B:", netB);
 
-        // --- Verification ---
         // Gross Yield for 1M tokens at 10% growth = 100,000
         assertEq(grossA, 100_000 * 1e18, "Gross yield calculation mismatch");
 
@@ -189,14 +184,12 @@ contract StableCoinMockTest is Test {
     }
 
     function test_PrincipalCompoundingLifecycle() public {
-        // Setup Client B with 20% fee
         vm.startPrank(earnerManager);
         stableCoin.setAccountInfo(address(stableCoin), true, 0);
         stableCoin.setAccountInfo(clientB, true, 2000); // 20%
         stableCoin.enableEarning();
         vm.stopPrank();
 
-        // FIRST DEPOSIT: 1,000,000 tokens
         uint256 firstDeposit = 1_000_000 * 1e18;
         mockM.transfer(address(mockSwap), firstDeposit * 2);
         vm.startPrank(address(mockSwap));
@@ -221,7 +214,6 @@ contract StableCoinMockTest is Test {
         uint256 finalBalance = stableCoin.balanceOf(clientB);
         (,, uint256 netAfterSecond) = stableCoin.accruedYieldAndFeeOf(clientB);
 
-        // Total Value = Principal tokens + Accrued yield not yet withdrawn
         uint256 totalValue = finalBalance + netAfterSecond;
 
         console.log("--- Step 3: After Second Deposit ---");
@@ -229,13 +221,11 @@ contract StableCoinMockTest is Test {
         console.log("Accrued Profit (Net):   ", netAfterSecond / 1e18);
         console.log("Total Account Value:    ", totalValue / 1e18);
 
-        // Assertions
         assertEq(finalBalance, 1_100_000 * 1e18, "Balance tracks Principal only");
         assertEq(totalValue, 1_180_000 * 1e18, "Total Value includes the 80k Profit");
     }
 
     function test_UnwrapAndRealizeYield() public {
-        // Setup tiers: Client B (20% fee)
         vm.startPrank(earnerManager);
         stableCoin.setAccountInfo(address(stableCoin), true, 0);
         stableCoin.setAccountInfo(clientB, true, 2000);
@@ -243,7 +233,6 @@ contract StableCoinMockTest is Test {
         stableCoin.enableEarning();
         vm.stopPrank();
 
-        // Wrap 1,000,000 tokens
         uint256 deposit1 = 1_000_000 * 1e18;
         mockM.transfer(address(mockSwap), 2_000_000 * 1e18);
         vm.prank(address(mockSwap));
@@ -265,13 +254,11 @@ contract StableCoinMockTest is Test {
         vm.prank(clientB);
         stableCoin.transfer(address(mockSwap), amountToUnwrap);
 
-        // THE EXIT
         uint256 facilityMBefore = mockM.balanceOf(address(mockSwap));
         vm.startPrank(address(mockSwap));
         stableCoin.unwrap(clientB, amountToUnwrap);
         vm.stopPrank();
 
-        // FINAL VERIFICATION
         uint256 facilityMAfter = mockM.balanceOf(address(mockSwap));
         uint256 principalReturned = facilityMAfter - facilityMBefore;
 
@@ -283,11 +270,8 @@ contract StableCoinMockTest is Test {
         console.log("Profit Still in Contract: ", netYieldStillOwed / 1e18);
         console.log("Total User Value:   ", (principalReturned + netYieldStillOwed) / 1e18);
 
-        // 1.1M Principal
         assertEq(principalReturned, 1_100_000 * 1e18, "Principal payout mismatch");
-        // 80k Net Profit
         assertEq(netYieldStillOwed, 80_000 * 1e18, "Net profit calculation mismatch");
-        // Total = 1.18M
         assertEq(principalReturned + netYieldStillOwed, 1_180_000 * 1e18, "Total value mismatch");
     }
 }
