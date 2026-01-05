@@ -11,11 +11,9 @@ contract MorphoBorrower {
         morpho = IMorpho(_morpho);
     }
 
-    function supplyAndBorrow(
-        MarketParams memory marketParams,
-        uint256 collateralAmount,
-        uint256 borrowAmount
-    ) external {
+    function supplyAndBorrow(MarketParams memory marketParams, uint256 collateralAmount, uint256 borrowAmount)
+        external
+    {
         IERC20(marketParams.collateralToken).transferFrom(msg.sender, address(this), collateralAmount);
         IERC20(marketParams.collateralToken).approve(address(morpho), collateralAmount);
         // onBehalf: who gets the credit (this contract)

@@ -15,11 +15,11 @@ contract MorphoBorrowerTest is Test {
     MorphoBorrower borrower;
     // https://docs.morpho.org/get-started/resources/addresses/
     IMorpho morpho = IMorpho(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
-    
+
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     // https://etherscan.io/token/0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0
     address constant wstETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
-    
+
     MarketParams marketParams;
 
     function setUp() public {
@@ -34,7 +34,7 @@ contract MorphoBorrowerTest is Test {
             // https://docs.morpho.org/get-started/resources/addresses/
             oracle: 0xbD60A6770b27E084E8617335ddE769241B0e71D8,
             irm: 0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC,
-            lltv: 945000000000000000 
+            lltv: 945000000000000000
         });
 
         // morpho.createMarket(marketParams);
@@ -73,16 +73,16 @@ contract MorphoBorrowerTest is Test {
         console.log("pos.borrowShares", pos.borrowShares);
         // Shares representing the assets supplied to the market.
         console.log("pos.supplyShares", pos.supplyShares);
-        
+
         assertEq(pos.collateral, collatAmount);
         assertEq(balanceAfter - balanceBefore, borrowAmount);
     }
 
     function testRevertIfBorrowAmountTooHigh() public {
         uint256 collatAmount = 1 ether; // 1 wstETH
-        // 1 wstETH is roughly 1.1 WETH. 
+        // 1 wstETH is roughly 1.1 WETH.
         // Trying to borrow 10 WETH is impossible.
-        uint256 wayTooMuchBorrow = 2 ether; 
+        uint256 wayTooMuchBorrow = 2 ether;
 
         deal(wstETH, address(this), collatAmount);
         IERC20(wstETH).approve(address(borrower), collatAmount);
