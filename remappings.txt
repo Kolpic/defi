@@ -3,3 +3,4 @@
 @uniswap/v3-periphery/=lib/v3-periphery/
 forge-std/=lib/forge-std/src/
 evm-m-extensions/=lib/evm-m-extensions/src/
+@morpho-blue/=lib/morpho-blue/src/
